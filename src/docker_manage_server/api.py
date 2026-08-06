@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 import shlex
+import socket as socket_module
 from typing import Any
 from uuid import uuid4
 
@@ -172,11 +173,15 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            runtime.close_terminal(session)
             for task in (reader, writer):
                 if not task.done():
                     task.cancel()
             await asyncio.gather(reader, writer, return_exceptions=True)
-            runtime.close_terminal(session)
+            try:
+                await websocket.close()
+            except RuntimeError:
+                pass
 
     return app
 
@@ -193,21 +198,38 @@ def _task_payload(task: DeploymentTask) -> dict[str, Any]:
 
 
 async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:
+    raw_socket = _raw_socket(socket)
+    if raw_socket is not None:
+        raw_socket.setblocking(False)
     while True:
-        chunk = await asyncio.to_thread(socket.recv, 4096)
+        try:
+            if raw_socket is not None:
+                chunk = await asyncio.get_running_loop().sock_recv(raw_socket, 4096)
+            else:
+                chunk = await asyncio.to_thread(_socket_read, socket)
+        except TimeoutError:
+            continue
+        except (OSError, ValueError):
+            return
         if not chunk:
             return
         await websocket.send_bytes(chunk)
 
 
 async def _relay_terminal_input(websocket: WebSocket, runtime: DockerRuntime, session: Any) -> None:
+    raw_socket = _raw_socket(session.socket)
+    if raw_socket is not None:
+        raw_socket.setblocking(False)
     while True:
         message = await websocket.receive()
         if message.get("type") == "websocket.disconnect":
             return
         data = message.get("bytes")
         if data is not None:
-            await asyncio.to_thread(_socket_send, session.socket, data)
+            if raw_socket is not None:
+                await asyncio.get_running_loop().sock_sendall(raw_socket, data)
+            else:
+                await asyncio.to_thread(_socket_send, session.socket, data)
             continue
         text = message.get("text")
         if text is None:
@@ -232,8 +254,42 @@ async def _relay_terminal_input(websocket: WebSocket, runtime: DockerRuntime, se
 
 
 def _socket_send(socket: Any, data: bytes) -> None:
+    raw_socket = getattr(socket, "_sock", None)
+    raw_sendall = getattr(raw_socket, "sendall", None)
+    if raw_sendall is not None:
+        raw_sendall(data)
+        return
     sendall = getattr(socket, "sendall", None)
     if sendall is not None:
         sendall(data)
-    else:
-        socket.send(data)
+        return
+    send = getattr(socket, "send", None)
+    if send is not None:
+        send(data)
+        return
+    write = getattr(socket, "write", None)
+    if write is not None:
+        write(data)
+        return
+    raise TypeError("terminal socket does not support writing")
+
+
+def _socket_read(socket: Any) -> bytes:
+    raw_socket = getattr(socket, "_sock", None)
+    raw_recv = getattr(raw_socket, "recv", None)
+    if raw_recv is not None:
+        return raw_recv(4096)
+    recv = getattr(socket, "recv", None)
+    if recv is not None:
+        return recv(4096)
+    read = getattr(socket, "read", None)
+    if read is not None:
+        return read(4096)
+    raise TypeError("terminal socket does not support reading")
+
+
+def _raw_socket(socket: Any) -> socket_module.socket | None:
+    raw_socket = getattr(socket, "_sock", None)
+    if isinstance(raw_socket, socket_module.socket):
+        return raw_socket
+    return None
