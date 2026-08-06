@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docker-manage-server"
+version = "0.1.0"
+description = "Docker Manage deployment and container management server"
+requires-python = ">=3.12"
+dependencies = [
+    "docker>=7.2,<8",
+    "fastapi>=0.115,<1",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+test = [
+    "httpx>=0.27,<1",
+    "pytest>=8,<9",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]
