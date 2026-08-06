@@ -1,0 +1,15 @@
+x-data-dir: &data-dir ${DOCKER_MANAGE_DATA_DIR:-${PWD}/data}
+
+services:
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATA_DIR: *data-dir
+    volumes:
+      - type: bind
+        source: *data-dir
+        target: *data-dir
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
