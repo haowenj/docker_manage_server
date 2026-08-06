@@ -8,20 +8,25 @@ Docker Manage Server 在内网 Docker 宿主机上运行，负责接收客户端
 
 ```bash
 export DOCKER_MANAGE_DATA_DIR="$PWD/data"
+export DOCKER_MANAGE_SERVER_PORT=6308
 mkdir -p "$DOCKER_MANAGE_DATA_DIR"
 docker compose up --build -d
-curl --fail --retry 10 --retry-all-errors --retry-delay 1 http://localhost:8000/api/health
+curl --fail --retry 10 --retry-all-errors --retry-delay 1 \
+  "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 ```
 
 Linux 服务器上建议使用固定的绝对路径，例如：
 
 ```bash
-export DOCKER_MANAGE_DATA_DIR=/opt/docker-manage-server/data
+export DOCKER_MANAGE_DATA_DIR=/data/docker-manage-server
+export DOCKER_MANAGE_SERVER_PORT=6308
 mkdir -p "$DOCKER_MANAGE_DATA_DIR"
 docker compose up --build -d
+curl --fail "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 ```
 
 如果不显式设置 `DOCKER_MANAGE_DATA_DIR`，Compose 默认使用当前项目目录下的 `data/` 绝对路径。
+`DOCKER_MANAGE_SERVER_PORT` 只控制宿主机发布端口，容器内端口始终为 `8000`；未设置时宿主机端口也默认为 `8000`。
 
 `compose.yaml` 已包含以下两个挂载：
 
@@ -51,11 +56,12 @@ volumes:
 ## API 示例
 
 ```bash
-curl -F 'file=@my-app.tar.gz' http://localhost:8000/api/deployment-tasks
-curl http://localhost:8000/api/deployment-tasks/<task_id>/review
-curl -X POST http://localhost:8000/api/deployment-tasks/<task_id>/deploy
-curl http://localhost:8000/api/containers
-curl 'http://localhost:8000/api/containers/<container_id>/logs?tail=100&timestamps=true'
+SERVER_URL="http://localhost:${DOCKER_MANAGE_SERVER_PORT:-8000}"
+curl -F 'file=@my-app.tar.gz' "$SERVER_URL/api/deployment-tasks"
+curl "$SERVER_URL/api/deployment-tasks/<task_id>/review"
+curl -X POST "$SERVER_URL/api/deployment-tasks/<task_id>/deploy"
+curl "$SERVER_URL/api/containers"
+curl "$SERVER_URL/api/containers/<container_id>/logs?tail=100&timestamps=true"
 ```
 
 容器终端使用：

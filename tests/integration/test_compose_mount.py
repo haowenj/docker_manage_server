@@ -22,6 +22,7 @@ def test_compose_uses_one_absolute_data_path_for_host_and_server_container(tmp_p
     data_dir = (tmp_path / "docker-manage-data").resolve()
     environment = os.environ.copy()
     environment["DOCKER_MANAGE_DATA_DIR"] = str(data_dir)
+    environment["DOCKER_MANAGE_SERVER_PORT"] = "6308"
 
     result = subprocess.run(
         ["docker", "compose", "config", "--format", "json"],
@@ -43,4 +44,12 @@ def test_compose_uses_one_absolute_data_path_for_host_and_server_container(tmp_p
     ]
     assert data_mounts == [
         {"type": "bind", "source": str(data_dir), "target": str(data_dir)}
+    ]
+    assert server["ports"] == [
+        {
+            "mode": "ingress",
+            "protocol": "tcp",
+            "published": "6308",
+            "target": 8000,
+        }
     ]

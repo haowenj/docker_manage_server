@@ -4,7 +4,7 @@ services:
   server:
     build: .
     ports:
-      - "8000:8000"
+      - "${DOCKER_MANAGE_SERVER_PORT:-8000}:8000"
     environment:
       DATA_DIR: *data-dir
     volumes:
