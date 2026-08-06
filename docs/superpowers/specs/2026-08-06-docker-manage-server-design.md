@@ -47,7 +47,7 @@ FastAPI 服务端容器
 服务端容器至少需要：
 
 - 挂载 `/var/run/docker.sock:/var/run/docker.sock`；
-- 挂载项目内 `./data:/app/data`；
+- 将宿主机绝对路径 `${DOCKER_MANAGE_DATA_DIR}` 挂载到服务端容器内完全相同的 `${DOCKER_MANAGE_DATA_DIR}`；
 - 安装 Python `docker` 包；
 - 安装 Docker CLI 与 Compose Plugin。
 
@@ -55,7 +55,7 @@ FastAPI 服务端容器
 
 ## 3. 数据目录与稳定部署路径
 
-服务端项目根目录新增 `data/`，加入 `.gitignore`。目录内容不提交到 Git。
+服务端项目根目录新增 `data/`，加入 `.gitignore`。目录内容不提交到 Git。运行服务端时通过 `DOCKER_MANAGE_DATA_DIR` 指定宿主机数据目录；该路径必须是绝对路径，并且同时作为服务端容器内的 `DATA_DIR`。
 
 ```text
 data/
@@ -105,7 +105,7 @@ data/deployments/<manifest.app_name>/
 - 归档再次选择 `copy` 并包含 `files/...` 时，允许按归档内容覆盖对应文件；
 - 绝对服务器路径不由服务端自动清空或改写。
 
-因此，第一次选择 `copy` 后，后续选择跳过复制不会覆盖已有容器数据。
+因此，第一次选择 `copy` 后，后续选择跳过复制不会覆盖已有容器数据。由于 Compose 从服务端容器内启动，宿主机和服务端容器必须使用相同的绝对数据目录，否则 Docker daemon 无法解析服务端容器内部的相对挂载路径。
 
 ## 4. 部署任务状态机
 
@@ -237,4 +237,3 @@ WebSocket /api/containers/{container_id}/terminal
 - 日志读取和 WebSocket 终端的数据双向转发；
 - 非运行容器拒绝建立终端；
 - 同一 `app_name` 的并发部署会被串行化。
-

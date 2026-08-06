@@ -4,19 +4,30 @@ Docker Manage Server 在内网 Docker 宿主机上运行，负责接收客户端
 
 ## 启动
 
-服务端容器需要访问宿主机 Docker Socket，并把项目内的 `data/` 挂载到容器内 `/app/data`：
+服务端容器需要访问宿主机 Docker Socket，并把运行数据目录以“宿主机和服务端容器内相同的绝对路径”挂载。这样服务端容器里执行的 Compose 命令解析出的 bind mount 路径，宿主机 Docker daemon 也能直接访问。
 
 ```bash
-mkdir -p data
+export DOCKER_MANAGE_DATA_DIR="$PWD/data"
+mkdir -p "$DOCKER_MANAGE_DATA_DIR"
 docker compose up --build -d
 curl --fail --retry 10 --retry-all-errors --retry-delay 1 http://localhost:8000/api/health
 ```
+
+Linux 服务器上建议使用固定的绝对路径，例如：
+
+```bash
+export DOCKER_MANAGE_DATA_DIR=/opt/docker-manage-server/data
+mkdir -p "$DOCKER_MANAGE_DATA_DIR"
+docker compose up --build -d
+```
+
+如果不显式设置 `DOCKER_MANAGE_DATA_DIR`，Compose 默认使用当前项目目录下的 `data/` 绝对路径。
 
 `compose.yaml` 已包含以下两个挂载：
 
 ```yaml
 volumes:
-  - ./data:/app/data
+  - ${DOCKER_MANAGE_DATA_DIR}:${DOCKER_MANAGE_DATA_DIR}
   - /var/run/docker.sock:/var/run/docker.sock
 ```
 
@@ -30,7 +41,7 @@ volumes:
 4. 用户选择部署后，服务端将内容合并到稳定目录：
 
    ```text
-   data/deployments/<app_name>/
+   ${DOCKER_MANAGE_DATA_DIR}/deployments/<app_name>/
    ```
 
 5. 如果存在 `images.tar`，先执行 `docker load`，再从稳定目录执行 `docker compose up -d`。

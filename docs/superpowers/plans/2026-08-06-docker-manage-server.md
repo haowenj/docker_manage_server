@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 服务端通过 `/var/run/docker.sock` 管理宿主机 Docker Engine。
-- 服务端数据目录固定为容器内 `/app/data`，宿主机通过 `./data:/app/data` 挂载。
+- 服务端通过 `DOCKER_MANAGE_DATA_DIR` 使用宿主机绝对数据目录；该目录必须以相同绝对路径挂载到服务端容器内，并作为 `DATA_DIR`，以保证服务端容器内执行的 Compose 能被宿主机 Docker daemon 正确解析。
 - `data/` 必须加入 Git 忽略，运行时内容不得提交。
 - 第一版不做 API 鉴权，不要求业务容器提供健康检查接口。
 - 健康状态只依据 Docker `State.Running`；健康检查接口只检查服务端和 Docker daemon 连接。
