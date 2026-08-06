@@ -27,6 +27,7 @@ def _write_archive(
     if include_files:
         (payload / "files").mkdir()
         (payload / "files/data.db").write_text("new", encoding="utf-8")
+        (payload / "images.tar").write_bytes(b"fake image archive")
 
     checksum_lines = []
     for path in sorted(item for item in payload.rglob("*") if item.is_file()):
