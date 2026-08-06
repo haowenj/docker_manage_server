@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
+import shlex
 from typing import Any
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile, WebSocket
+from fastapi.responses import PlainTextResponse
+from starlette.websockets import WebSocketDisconnect
 
 from .artifacts import list_files
 from .config import Settings, get_settings
 from .deployment import DeploymentService, DeploymentStateError
-from .docker_runtime import DockerRuntime, DockerRuntimeError
+from .docker_runtime import (
+    ContainerNotFoundError,
+    ContainerNotRunningError,
+    DockerRuntime,
+    DockerRuntimeError,
+)
 from .models import DeploymentTask, TaskStatus
 from .storage import TaskStore
 
@@ -103,6 +113,71 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return _task_payload(task)
 
+    @app.get("/api/containers")
+    def list_containers() -> dict[str, Any]:
+        try:
+            return {"items": runtime.list_containers()}
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/containers/{container_id}")
+    def get_container(container_id: str) -> dict[str, Any]:
+        try:
+            container = runtime.get_container(container_id)
+            return {"item": DockerRuntime._serialize_container(container)}
+        except ContainerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="container not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/containers/{container_id}/logs")
+    def get_logs(
+        container_id: str,
+        tail: str = "all",
+        timestamps: bool = False,
+    ) -> PlainTextResponse:
+        try:
+            output = runtime.logs(container_id, tail=tail, timestamps=timestamps)
+        except ContainerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="container not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return PlainTextResponse(output.decode("utf-8", errors="replace"))
+
+    @app.websocket("/api/containers/{container_id}/terminal")
+    async def terminal(websocket: WebSocket, container_id: str, command: str = "/bin/sh"):
+        await websocket.accept()
+        try:
+            session = runtime.create_terminal(container_id, shlex.split(command))
+        except ContainerNotFoundError:
+            await websocket.send_json({"error": "container_not_found"})
+            await websocket.close(code=1008)
+            return
+        except ContainerNotRunningError:
+            await websocket.send_json({"error": "container_not_running"})
+            await websocket.close(code=1008)
+            return
+        except DockerRuntimeError as exc:
+            await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
+            await websocket.close(code=1011)
+            return
+
+        reader = asyncio.create_task(_relay_terminal_output(websocket, session.socket))
+        writer = asyncio.create_task(_relay_terminal_input(websocket, runtime, session))
+        try:
+            await asyncio.wait(
+                {reader, writer},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        except WebSocketDisconnect:
+            pass
+        finally:
+            for task in (reader, writer):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(reader, writer, return_exceptions=True)
+            runtime.close_terminal(session)
+
     return app
 
 
@@ -115,3 +190,50 @@ def _get_task(store: TaskStore, task_id: str) -> DeploymentTask:
 
 def _task_payload(task: DeploymentTask) -> dict[str, Any]:
     return task.model_dump(mode="json")
+
+
+async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:
+    while True:
+        chunk = await asyncio.to_thread(socket.recv, 4096)
+        if not chunk:
+            return
+        await websocket.send_bytes(chunk)
+
+
+async def _relay_terminal_input(websocket: WebSocket, runtime: DockerRuntime, session: Any) -> None:
+    while True:
+        message = await websocket.receive()
+        if message.get("type") == "websocket.disconnect":
+            return
+        data = message.get("bytes")
+        if data is not None:
+            await asyncio.to_thread(_socket_send, session.socket, data)
+            continue
+        text = message.get("text")
+        if text is None:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            await websocket.send_json({"error": "invalid_message"})
+            continue
+        if payload.get("type") != "resize":
+            await websocket.send_json({"error": "unsupported_message"})
+            continue
+        try:
+            width = int(payload["width"])
+            height = int(payload["height"])
+            if width < 1 or height < 1:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            await websocket.send_json({"error": "invalid_resize"})
+            continue
+        runtime.resize_terminal(session.exec_id, width, height)
+
+
+def _socket_send(socket: Any, data: bytes) -> None:
+    sendall = getattr(socket, "sendall", None)
+    if sendall is not None:
+        sendall(data)
+    else:
+        socket.send(data)
