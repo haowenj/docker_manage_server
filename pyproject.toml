@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "docker-manage-server"
 version = "0.1.0"
 description = "Docker Manage deployment and container management server"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "docker>=7.2,<8",
     "fastapi>=0.115,<1",

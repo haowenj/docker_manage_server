@@ -6,7 +6,7 @@
 
 **Architecture:** FastAPI 负责 HTTP/WebSocket API；Docker SDK for Python 负责 Docker Engine 查询、日志和 Exec；Docker CLI + Compose Plugin 通过无 shell 子进程执行 `docker load` 和 `docker compose up -d`。上传归档先进入任务 staging 目录，审核通过后以 `manifest.app_name` 为键合并到稳定部署目录。
 
-**Tech Stack:** Python 3.12、FastAPI、Uvicorn、Pydantic、Docker SDK for Python、Docker CLI/Compose Plugin、pytest、httpx。
+**Tech Stack:** Python 3.11+、FastAPI、Uvicorn、Pydantic、Docker SDK for Python、Docker CLI/Compose Plugin、pytest、httpx。
 
 ## Global Constraints
 
