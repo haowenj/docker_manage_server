@@ -25,5 +25,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+filterwarnings = [
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
 pythonpath = ["src"]
 testpaths = ["tests"]

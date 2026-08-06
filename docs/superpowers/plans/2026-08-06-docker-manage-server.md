@@ -188,11 +188,8 @@ git commit -m "feat: add persistent deployment task store"
 
 **Files:**
 - Create: `src/docker_manage_server/artifacts.py`
+- Modify: `tests/conftest.py`
 - Test: `tests/unit/test_artifacts.py`
-- Test: `tests/fixtures/archive/compose.yaml`
-- Test: `tests/fixtures/archive/.env`
-- Test: `tests/fixtures/archive/manifest.json`
-- Test: `tests/fixtures/archive/checksums.sha256`
 
 **Interfaces:**
 - `ArchiveReview`: `app_name`, `files`, `env_text`, `compose_text`。

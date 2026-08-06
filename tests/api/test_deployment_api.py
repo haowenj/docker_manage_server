@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 
 from docker_manage_server.api import create_app
 from docker_manage_server.config import Settings
