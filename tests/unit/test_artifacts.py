@@ -126,3 +126,19 @@ def test_prepare_server_directories_rejects_symlink_escape(tmp_path: Path):
             deployment_dir,
             ("files/link/sqlite",),
         )
+
+
+def test_write_checksums_matches_all_regular_workspace_files(tmp_path: Path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / ".env").write_text("A=2\n", encoding="utf-8")
+    (root / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    (root / "checksums.sha256").write_text("stale\n", encoding="utf-8")
+
+    artifacts.write_checksums(root)
+    artifacts._verify_checksums(root)
+
+    entries = (root / "checksums.sha256").read_text(encoding="utf-8")
+    assert "  .env\n" in entries
+    assert "  compose.yaml\n" in entries
+    assert "  checksums.sha256\n" not in entries

@@ -146,6 +146,19 @@ def prepare_server_directories(
         target.chmod(0o777)
 
 
+def write_checksums(root: Path) -> None:
+    root = Path(root).resolve()
+    lines = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink() and path.name != "checksums.sha256":
+            relative = path.relative_to(root).as_posix()
+            lines.append(f"{_sha256(path)}  {relative}\n")
+    destination = root / "checksums.sha256"
+    partial = root / ".checksums.sha256.partial"
+    partial.write_text("".join(lines), encoding="utf-8")
+    partial.replace(destination)
+
+
 def _verify_checksums(root: Path) -> None:
     checksums_path = root / "checksums.sha256"
     declared: dict[str, str] = {}
