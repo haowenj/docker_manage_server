@@ -5,7 +5,7 @@ import shutil
 from threading import Lock
 from typing import Any, BinaryIO
 
-from .artifacts import extract_and_review, overlay_directory
+from .artifacts import extract_and_review, overlay_directory, prepare_server_directories
 from .docker_runtime import DockerRuntime
 from .models import DeploymentTask, TaskStatus
 from .storage import TaskStore
@@ -37,6 +37,7 @@ class DeploymentService:
             review = extract_and_review(archive_path, task.extracted_dir)
             task.status = TaskStatus.PENDING_REVIEW
             task.app_name = review.app_name
+            task.server_paths = review.server_paths
             task.deployment_dir = self.store.deployment_dir(review.app_name)
             self.store.save(task)
             return task
@@ -70,6 +71,7 @@ class DeploymentService:
                 deployment_dir = task.deployment_dir
                 assert deployment_dir is not None
                 overlay_directory(task.extracted_dir, deployment_dir)
+                prepare_server_directories(deployment_dir, task.server_paths)
                 image_tar = deployment_dir / "images.tar"
                 if image_tar.is_file():
                     load_result = self.runtime.load_image(image_tar, deployment_dir)

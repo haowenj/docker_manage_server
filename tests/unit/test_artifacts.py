@@ -1,15 +1,18 @@
 import io
+import stat
 import tarfile
 from pathlib import Path
 
 import pytest
 
+import docker_manage_server.artifacts as artifacts
 from docker_manage_server.artifacts import extract_and_review, overlay_directory
 
 
 def test_extract_review_reads_manifest_env_and_compose(valid_archive: Path, tmp_path: Path):
     review = extract_and_review(valid_archive, tmp_path / "extracted")
     assert review.app_name == "demo"
+    assert review.server_paths == ("files/sqlite",)
     assert "SECRET=value" in review.env_text
     assert "services:" in review.compose_text
 
@@ -29,6 +32,13 @@ def test_unsafe_manifest_app_name_is_rejected(unsafe_app_name_archive: Path, tmp
         extract_and_review(unsafe_app_name_archive, tmp_path / "extracted")
 
 
+def test_unsafe_manifest_server_path_is_rejected(
+    unsafe_server_path_archive: Path, tmp_path: Path
+):
+    with pytest.raises(ValueError, match="manifest server_paths is unsafe"):
+        extract_and_review(unsafe_server_path_archive, tmp_path / "extracted")
+
+
 def test_overlay_does_not_delete_files_missing_from_new_package(tmp_path: Path):
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -41,3 +51,78 @@ def test_overlay_does_not_delete_files_missing_from_new_package(tmp_path: Path):
     overlay_directory(source, target)
     assert (target / "compose.yaml").read_text(encoding="utf-8") == "new"
     assert (target / "files/data.db").read_text(encoding="utf-8") == "keep"
+
+
+def test_overlay_preserves_mode_for_new_directory(tmp_path: Path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source_directory = source / "files/sqlite"
+    source_directory.mkdir(parents=True)
+    source_directory.chmod(0o777)
+    target.mkdir()
+
+    overlay_directory(source, target)
+
+    assert stat.S_IMODE((target / "files/sqlite").stat().st_mode) == 0o777
+
+
+def test_overlay_preserves_mode_of_existing_directory(tmp_path: Path):
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source_directory = source / "files/sqlite"
+    target_directory = target / "files/sqlite"
+    source_directory.mkdir(parents=True)
+    source_directory.chmod(0o777)
+    target_directory.mkdir(parents=True)
+    target_directory.chmod(0o700)
+
+    overlay_directory(source, target)
+
+    assert stat.S_IMODE(target_directory.stat().st_mode) == 0o700
+
+
+def test_prepare_server_directories_creates_missing_relative_path_writable(tmp_path: Path):
+    deployment_dir = tmp_path / "deployments/demo"
+    deployment_dir.mkdir(parents=True)
+
+    artifacts.prepare_server_directories(deployment_dir, ("files/sqlite",))
+
+    created = deployment_dir / "files/sqlite"
+    assert created.is_dir()
+    assert stat.S_IMODE(created.stat().st_mode) == 0o777
+
+
+def test_prepare_server_directories_preserves_existing_mode(tmp_path: Path):
+    deployment_dir = tmp_path / "deployments/demo"
+    existing = deployment_dir / "files/sqlite"
+    existing.mkdir(parents=True)
+    existing.chmod(0o700)
+
+    artifacts.prepare_server_directories(deployment_dir, ("files/sqlite",))
+
+    assert stat.S_IMODE(existing.stat().st_mode) == 0o700
+
+
+def test_prepare_server_directories_ignores_absolute_path(tmp_path: Path):
+    deployment_dir = tmp_path / "deployments/demo"
+    deployment_dir.mkdir(parents=True)
+    external = tmp_path / "external"
+
+    artifacts.prepare_server_directories(deployment_dir, (str(external),))
+
+    assert not external.exists()
+
+
+def test_prepare_server_directories_rejects_symlink_escape(tmp_path: Path):
+    deployment_dir = tmp_path / "deployments/demo"
+    files_dir = deployment_dir / "files"
+    files_dir.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (files_dir / "link").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="outside deployment directory"):
+        artifacts.prepare_server_directories(
+            deployment_dir,
+            ("files/link/sqlite",),
+        )

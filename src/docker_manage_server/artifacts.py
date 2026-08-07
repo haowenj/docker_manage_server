@@ -18,6 +18,7 @@ from .models import FileEntry
 
 class ArchiveReview(BaseModel):
     app_name: str
+    server_paths: tuple[str, ...]
     files: tuple[FileEntry, ...]
     env_text: str
     compose_text: str
@@ -58,9 +59,11 @@ def extract_and_review(archive_path: Path, extracted_dir: Path) -> ArchiveReview
     app_name = manifest.get("app_name") if isinstance(manifest, dict) else None
     if not isinstance(app_name, str) or not _safe_app_name(app_name):
         raise ValueError("manifest app_name is unsafe")
+    server_paths = _manifest_server_paths(manifest)
 
     return ArchiveReview(
         app_name=app_name,
+        server_paths=server_paths,
         files=list_files(extracted_dir),
         env_text=(extracted_dir / ".env").read_text(encoding="utf-8"),
         compose_text=(extracted_dir / "compose.yaml").read_text(encoding="utf-8"),
@@ -102,7 +105,9 @@ def overlay_directory(source: Path, target: Path) -> None:
         if stat.S_ISDIR(mode):
             if target_path.exists() and not target_path.is_dir():
                 target_path.unlink()
-            target_path.mkdir(parents=True, exist_ok=True)
+            if not target_path.exists():
+                target_path.mkdir(parents=True, exist_ok=False)
+                target_path.chmod(stat.S_IMODE(mode))
         elif stat.S_ISLNK(mode):
             if target_path.exists() or target_path.is_symlink():
                 _remove_path(target_path)
@@ -115,6 +120,30 @@ def overlay_directory(source: Path, target: Path) -> None:
             shutil.copy2(source_path, target_path)
         else:
             raise ValueError(f"unsupported overlay member: {relative}")
+
+
+def prepare_server_directories(
+    deployment_dir: Path,
+    server_paths: tuple[str, ...],
+) -> None:
+    root = Path(deployment_dir).resolve()
+    for value in server_paths:
+        path = PurePosixPath(value)
+        if path.is_absolute():
+            continue
+        if (
+            ".." in path.parts
+            or len(path.parts) < 2
+            or path.parts[0] != "files"
+        ):
+            raise ValueError(f"server path is outside deployment directory: {value}")
+        target = root.joinpath(*path.parts)
+        if not target.resolve(strict=False).is_relative_to(root):
+            raise ValueError(f"server path is outside deployment directory: {value}")
+        if target.exists() or target.is_symlink():
+            continue
+        target.mkdir(parents=True, exist_ok=False)
+        target.chmod(0o777)
 
 
 def _verify_checksums(root: Path) -> None:
@@ -176,6 +205,33 @@ def _safe_member_name(value: str) -> str | None:
 
 def _safe_app_name(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value))
+
+
+def _manifest_server_paths(manifest: dict[str, Any]) -> tuple[str, ...]:
+    values = manifest.get("server_paths", [])
+    if not isinstance(values, list):
+        raise ValueError("manifest server_paths is unsafe")
+
+    normalized: list[str] = []
+    for value in values:
+        if (
+            not isinstance(value, str)
+            or not value
+            or "\\" in value
+            or "\x00" in value
+        ):
+            raise ValueError("manifest server_paths is unsafe")
+        path = PurePosixPath(value)
+        if ".." in path.parts:
+            raise ValueError("manifest server_paths is unsafe")
+        if not path.is_absolute() and (
+            len(path.parts) < 2 or path.parts[0] != "files"
+        ):
+            raise ValueError("manifest server_paths is unsafe")
+        rendered = path.as_posix()
+        if rendered not in normalized:
+            normalized.append(rendered)
+    return tuple(normalized)
 
 
 def _sha256(path: Path) -> str:

@@ -27,6 +27,7 @@ class DeploymentTask(BaseModel):
     extracted_dir: Path
     deployment_dir: Path | None = None
     app_name: str | None = None
+    server_paths: tuple[str, ...] = ()
     error: str | None = None
     command_output: str = ""
     created_at: datetime | None = None

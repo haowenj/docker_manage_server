@@ -15,6 +15,7 @@ def _write_archive(
     include_files: bool = False,
     app_name: str = "demo",
     env_text: str = "SECRET=value\n",
+    server_paths: tuple[str, ...] = ("./files/sqlite",),
 ) -> Path:
     payload = root / "payload"
     payload.mkdir(parents=True)
@@ -23,7 +24,14 @@ def _write_archive(
         "services:\n  web:\n    image: demo:latest\n", encoding="utf-8"
     )
     (payload / "manifest.json").write_text(
-        json.dumps({"schema_version": 1, "app_name": app_name}), encoding="utf-8"
+        json.dumps(
+            {
+                "schema_version": 1,
+                "app_name": app_name,
+                "server_paths": list(server_paths),
+            }
+        ),
+        encoding="utf-8",
     )
     if include_files:
         (payload / "files").mkdir()
@@ -58,6 +66,15 @@ def valid_archive_with_files(tmp_path: Path) -> Path:
 def unsafe_app_name_archive(tmp_path: Path) -> Path:
     return _write_archive(
         tmp_path / "unsafe-app", tmp_path / "unsafe-app.tar.gz", app_name="demo name"
+    )
+
+
+@pytest.fixture
+def unsafe_server_path_archive(tmp_path: Path) -> Path:
+    return _write_archive(
+        tmp_path / "unsafe-server-path",
+        tmp_path / "unsafe-server-path.tar.gz",
+        server_paths=("../outside",),
     )
 
 
