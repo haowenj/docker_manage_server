@@ -48,6 +48,11 @@ class WebFakeRuntime:
     def compose_up(self, cwd):
         return SimpleNamespace(returncode=0, stdout=b"started\n", stderr=b"")
 
+    def create_terminal(self, container_id, command):
+        from docker_manage_server.docker_runtime import ContainerNotRunningError
+
+        raise ContainerNotRunningError(container_id)
+
 
 @pytest.fixture
 def web_context(tmp_path):

@@ -8,8 +8,8 @@ import socket as socket_module
 from typing import Any
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile, WebSocket
-from fastapi.responses import PlainTextResponse
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile, WebSocket
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 
@@ -23,6 +23,7 @@ from .docker_runtime import (
     DockerRuntimeError,
 )
 from .models import DeploymentTask, TaskStatus
+from .security import CSP, UNSAFE_METHODS, origin_matches_host
 from .storage import TaskStore
 from .web import PACKAGE_ROOT, create_web_router
 
@@ -42,6 +43,32 @@ def create_app(
     app.state.store = store
     app.state.runtime = runtime
     app.state.deployment = deployment
+
+    @app.middleware("http")
+    async def security_boundary(request: Request, call_next):
+        origin = request.headers.get("origin")
+        host = request.headers.get("host")
+        if (
+            request.method in UNSAFE_METHODS
+            and not origin_matches_host(origin, host)
+        ):
+            if request.url.path.startswith("/api/"):
+                response = JSONResponse(
+                    {"detail": "cross-origin request rejected"},
+                    status_code=403,
+                )
+            else:
+                response = PlainTextResponse(
+                    "cross-origin request rejected",
+                    status_code=403,
+                )
+        else:
+            response = await call_next(request)
+
+        response.headers["Content-Security-Policy"] = CSP
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
 
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     app.include_router(create_web_router(store, deployment, runtime))
@@ -152,6 +179,12 @@ def create_app(
 
     @app.websocket("/api/containers/{container_id}/terminal")
     async def terminal(websocket: WebSocket, container_id: str, command: str = "/bin/sh"):
+        if not origin_matches_host(
+            websocket.headers.get("origin"),
+            websocket.headers.get("host"),
+        ):
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         try:
             session = runtime.create_terminal(container_id, shlex.split(command))
