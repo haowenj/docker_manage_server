@@ -46,6 +46,8 @@ def test_upload_returns_pending_review(client, valid_archive):
     )
     assert response.status_code == 201
     assert response.json()["status"] == "pending_review"
+    assert "created_at" not in response.json()
+    assert "updated_at" not in response.json()
 
 
 def test_review_returns_full_env_and_compose(client, valid_archive):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime, timezone
 import json
 import re
 import shutil
@@ -12,7 +14,12 @@ _TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
 class TaskStore:
-    def __init__(self, data_dir: Path):
+    def __init__(
+        self,
+        data_dir: Path,
+        clock: Callable[[], datetime] | None = None,
+    ):
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self.data_dir = Path(data_dir)
         self.packages_dir = self.data_dir / "packages"
         self.tasks_dir = self.data_dir / "tasks"
@@ -28,17 +35,26 @@ class TaskStore:
             raise ValueError(f"task already exists: {task_id}")
         package_dir = self.packages_dir / task_id
         package_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+        now = self._clock()
         task = DeploymentTask(
             task_id=task_id,
             status=TaskStatus.UPLOADED,
             original_filename=original_filename,
             package_dir=package_dir,
             extracted_dir=package_dir / "extracted",
+            created_at=now,
+            updated_at=now,
         )
-        self.save(task)
+        self._write(task)
         return task
 
     def save(self, task: DeploymentTask) -> DeploymentTask:
+        now = self._clock()
+        task.created_at = task.created_at or now
+        task.updated_at = now
+        return self._write(task)
+
+    def _write(self, task: DeploymentTask) -> DeploymentTask:
         self._validate_task_id(task.task_id)
         destination = self._state_path(task.task_id)
         partial = destination.with_name(f".{destination.name}.partial")
@@ -51,7 +67,23 @@ class TaskStore:
         path = self._state_path(task_id)
         if not path.is_file():
             raise KeyError(task_id)
-        return DeploymentTask.model_validate_json(path.read_text(encoding="utf-8"))
+        task = DeploymentTask.model_validate_json(path.read_text(encoding="utf-8"))
+        if task.created_at is None or task.updated_at is None:
+            fallback = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            task.created_at = task.created_at or fallback
+            task.updated_at = task.updated_at or fallback
+        return task
+
+    def list(self) -> tuple[DeploymentTask, ...]:
+        tasks = tuple(self.get(path.stem) for path in self.tasks_dir.glob("*.json"))
+        minimum = datetime.min.replace(tzinfo=timezone.utc)
+        return tuple(
+            sorted(
+                tasks,
+                key=lambda task: (task.updated_at or minimum, task.task_id),
+                reverse=True,
+            )
+        )
 
     def delete(self, task_id: str) -> None:
         self._validate_task_id(task_id)

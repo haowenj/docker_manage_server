@@ -194,7 +194,10 @@ def _get_task(store: TaskStore, task_id: str) -> DeploymentTask:
 
 
 def _task_payload(task: DeploymentTask) -> dict[str, Any]:
-    return task.model_dump(mode="json")
+    return task.model_dump(
+        mode="json",
+        exclude={"created_at", "updated_at"},
+    )
 
 
 async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:
