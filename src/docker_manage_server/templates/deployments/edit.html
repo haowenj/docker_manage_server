@@ -18,19 +18,52 @@
       <div><h2>部署目录准备</h2><p class="muted">路径相对于部署目录；权限只作用于目录本身，不递归修改内部内容。</p></div>
       <button class="button button-secondary" type="button" data-directory-add>添加目录</button>
     </div>
-    <input type="hidden" name="directories_json" data-directory-json>
+    <input type="hidden" name="directories_json" value="[]" data-directory-json>
     <script type="application/json" data-directory-initial>{{ directories|tojson }}</script>
     <div class="directory-rule-list" data-directory-list></div>
     <template data-directory-row-template>
-      <div class="directory-rule" data-directory-rule>
-        <label class="field"><span>相对路径</span><input type="text" data-directory-path></label>
-        <label class="field"><span>权限</span><select data-directory-mode>
-          <option value="0700">0700</option><option value="0750">0750</option>
-          <option value="0755">0755</option><option value="0770">0770</option>
-          <option value="0775">0775</option><option value="0777">0777</option>
-        </select></label>
+      <article class="directory-rule" data-directory-rule>
+        <label class="field">
+          <span>相对路径</span>
+          <input type="text" placeholder="例如 data/mysql" data-directory-path>
+        </label>
+        <label class="field">
+          <span>常用权限</span>
+          <select data-directory-mode>
+            <option value="">自定义</option>
+            <option value="0700">0700 仅所有者可访问</option>
+            <option value="0750">0750 所有者可写，用户组可读和进入</option>
+            <option value="0755">0755 所有人可读和进入，仅所有者可写</option>
+            <option value="0770">0770 所有者和用户组可写</option>
+            <option value="0775">0775 所有者和用户组可写，其他用户可读和进入</option>
+            <option value="0777">0777 所有人可写（仅在确有需要时使用）</option>
+          </select>
+        </label>
+        <div class="field">
+          <span>当前权限</span>
+          <output class="permission-mode" data-directory-mode-value>0755</output>
+        </div>
+        <details class="permission-details">
+          <summary>精细设置 r/w/x</summary>
+          <div class="permission-grid">
+            <strong></strong><strong>读 r</strong><strong>写 w</strong><strong>进入 x</strong>
+            <span>所有者</span>
+            <label><input type="checkbox" data-permission-bit="0400">r</label>
+            <label><input type="checkbox" data-permission-bit="0200">w</label>
+            <label><input type="checkbox" data-permission-bit="0100">x</label>
+            <span>用户组</span>
+            <label><input type="checkbox" data-permission-bit="0040">r</label>
+            <label><input type="checkbox" data-permission-bit="0020">w</label>
+            <label><input type="checkbox" data-permission-bit="0010">x</label>
+            <span>其他用户</span>
+            <label><input type="checkbox" data-permission-bit="0004">r</label>
+            <label><input type="checkbox" data-permission-bit="0002">w</label>
+            <label><input type="checkbox" data-permission-bit="0001">x</label>
+          </div>
+        </details>
+        <p class="permission-warning" data-permission-warning hidden>0777 允许所有用户写入，请确认这是应用真正需要的权限。</p>
         <button class="button button-danger" type="button" data-directory-remove>删除</button>
-      </div>
+      </article>
     </template>
   </section>
   <div class="button-row">

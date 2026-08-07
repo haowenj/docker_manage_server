@@ -49,14 +49,17 @@ volumes:
 
 1. 上传客户端生成的 `.tar.gz` 归档。
 2. 服务端将归档保存并解压到任务 staging 目录。
-3. 页面查看文件树、完整 `.env` 和 `compose.yaml`。
-4. 用户选择部署后，服务端将内容合并到稳定目录：
+3. 页面审核文件树、完整 `.env` 和 `compose.yaml`；需要时进入“编辑配置”。
+4. 编辑页可以修改 `.env`、`compose.yaml`，并添加部署根目录内的“相对目录 + `0000`–`0777` 权限”规则。保存时先运行 Compose 配置校验，不会提前修改正式部署目录。
+5. 用户确认部署后，服务端把内容合并到稳定目录：
 
    ```text
    ${DOCKER_MANAGE_DATA_DIR}/deployments/<app_name>/
    ```
 
-5. 如果存在 `images.tar`，先执行 `docker load`，再从稳定目录执行 `docker compose up -d`。
+6. 服务端创建规则中缺失的目录，并对明确配置的目录本身执行 `chmod`；不会递归修改内部文件或子目录。
+7. 如果存在 `images.tar`，先执行 `docker load`，再从稳定目录执行 `docker compose up -d`。
+8. Compose 部署失败的任务可以编辑后重新部署，也可以原样重试；上传或解压失败的任务不能重试。
 
 归档中不存在的文件不会从稳定部署目录删除。因此，后续归档选择跳过 bind mount 内容时，已有的 `files/...` 数据仍会保留。
 

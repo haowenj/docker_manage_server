@@ -1960,7 +1960,7 @@ Expected:
 Run:
 
 ```bash
-.venv/bin/python -m pip wheel . --no-deps -w dist
+uv build --wheel -o dist
 .venv/bin/python -c "from importlib.resources import files; import docker_manage_server as p; assert files(p).joinpath('templates/deployments/edit.html').is_file(); assert files(p).joinpath('static/js/app.js').is_file()"
 ```
 

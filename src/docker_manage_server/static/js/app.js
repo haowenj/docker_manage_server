@@ -4,6 +4,73 @@ document.querySelectorAll("form[data-confirm]").forEach((element) => {
   });
 });
 
+document.querySelectorAll("[data-directory-editor]").forEach((editor) => {
+  const list = editor.querySelector("[data-directory-list]");
+  const template = editor.querySelector("[data-directory-row-template]");
+  const initialNode = editor.querySelector("[data-directory-initial]");
+  const serialized = editor.querySelector("[data-directory-json]");
+  const addButton = editor.querySelector("[data-directory-add]");
+
+  const readMode = (row) => {
+    let value = 0;
+    row.querySelectorAll("[data-permission-bit]").forEach((checkbox) => {
+      if (checkbox.checked) {
+        value |= Number.parseInt(checkbox.dataset.permissionBit, 8);
+      }
+    });
+    return value.toString(8).padStart(4, "0");
+  };
+
+  const renderMode = (row, mode) => {
+    const numeric = Number.parseInt(mode, 8);
+    row.querySelectorAll("[data-permission-bit]").forEach((checkbox) => {
+      const bit = Number.parseInt(checkbox.dataset.permissionBit, 8);
+      checkbox.checked = (numeric & bit) === bit;
+    });
+    const preset = row.querySelector("[data-directory-mode]");
+    preset.value = Array.from(preset.options).some((option) => option.value === mode)
+      ? mode
+      : "";
+    row.querySelector("[data-directory-mode-value]").textContent = mode;
+    row.querySelector("[data-permission-warning]").hidden = mode !== "0777";
+  };
+
+  const addRule = (rule = { path: "", mode: "0755" }) => {
+    const fragment = template.content.cloneNode(true);
+    const row = fragment.querySelector("[data-directory-rule]");
+    row.querySelector("[data-directory-path]").value = rule.path || "";
+    renderMode(row, rule.mode || "0755");
+    row.querySelector("[data-directory-mode]").addEventListener("change", (event) => {
+      if (event.target.value) renderMode(row, event.target.value);
+    });
+    row.querySelectorAll("[data-permission-bit]").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => renderMode(row, readMode(row)));
+    });
+    row.querySelector("[data-directory-remove]").addEventListener("click", () => row.remove());
+    list.appendChild(fragment);
+  };
+
+  let initial = [];
+  try {
+    initial = JSON.parse(initialNode.textContent || "[]");
+  } catch (_error) {
+    initial = [];
+  }
+  if (initial.length) initial.forEach(addRule);
+  else addRule();
+
+  addButton.addEventListener("click", () => addRule());
+  editor.addEventListener("submit", () => {
+    const rules = Array.from(list.querySelectorAll("[data-directory-rule]"))
+      .map((row) => ({
+        path: row.querySelector("[data-directory-path]").value.trim(),
+        mode: readMode(row),
+      }))
+      .filter((rule) => rule.path);
+    serialized.value = JSON.stringify(rules);
+  });
+});
+
 const taskRoot = document.querySelector("[data-task-poll-url]");
 if (taskRoot && taskRoot.dataset.taskStatus === "deploying") {
   const labels = {

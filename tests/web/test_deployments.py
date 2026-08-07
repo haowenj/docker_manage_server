@@ -96,6 +96,17 @@ def test_edit_page_shows_config_and_manifest_directory_rule(web_context, valid_a
     assert edit.status_code == 200
     assert "SECRET=value" in edit.text
     assert "data-directory-editor" in edit.text
+    assert "data-directory-add" in edit.text
+    assert "data-directory-mode" in edit.text
+    assert 'data-permission-bit="0400"' in edit.text
+    assert 'data-permission-bit="0001"' in edit.text
+    assert "0700" in edit.text
+    assert "0750" in edit.text
+    assert "0755" in edit.text
+    assert "0770" in edit.text
+    assert "0775" in edit.text
+    assert "0777" in edit.text
+    assert "不递归修改" in edit.text
 
 
 def test_edit_form_saves_and_redirects_to_detail(web_context, valid_archive):
