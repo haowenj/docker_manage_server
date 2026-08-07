@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 import stat
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import docker_manage_server.artifacts as artifacts
+from docker_manage_server.deployment_config import can_retry_task
 from docker_manage_server.deployment import (
     DeploymentConfigurationError,
     DeploymentConfigurationTooLargeError,
@@ -24,11 +26,13 @@ class FakeRuntime:
         *,
         compose_returncode: int = 0,
         compose_observer=None,
+        compose_returncodes: list[int] | None = None,
         compose_config_returncode: int = 0,
         compose_config_stderr: bytes = b"invalid compose",
     ):
         self.calls: list[str] = []
         self.compose_returncode = compose_returncode
+        self.compose_returncodes = list(compose_returncodes or [])
         self.compose_observer = compose_observer
         self.compose_config_returncode = compose_config_returncode
         self.compose_config_stderr = compose_config_stderr
@@ -41,10 +45,15 @@ class FakeRuntime:
         if self.compose_observer is not None:
             self.compose_observer(cwd)
         self.calls.append("compose")
+        returncode = (
+            self.compose_returncodes.pop(0)
+            if self.compose_returncodes
+            else self.compose_returncode
+        )
         return SimpleNamespace(
-            returncode=self.compose_returncode,
-            stdout=b"started" if self.compose_returncode == 0 else b"",
-            stderr=b"failed" if self.compose_returncode else b"",
+            returncode=returncode,
+            stdout=b"started" if returncode == 0 else b"",
+            stderr=b"failed" if returncode else b"",
         )
 
     def compose_config(self, project_dir: Path, compose_file: Path, env_file: Path):
@@ -275,3 +284,61 @@ def test_edit_configuration_store_failure_restores_workspace(
 
     assert {path: path.read_bytes() for path in paths} == before
     assert service.store.get("task-1").edited_at is None
+
+
+def test_upload_initializes_relative_manifest_directory_rules(tmp_path, valid_archive):
+    service = make_service(tmp_path)
+    with valid_archive.open("rb") as archive:
+        task = service.upload("task-1", archive, "demo.tar.gz")
+    assert task.directory_rules == (
+        DirectoryRule(path="files/sqlite", mode="0777"),
+    )
+    assert task.failure_phase is None
+
+
+def test_retry_updates_existing_directory_mode_before_compose(tmp_path, valid_archive):
+    observed = []
+
+    def observe(cwd: Path):
+        target = cwd / "data/mysql"
+        observed.append(stat.S_IMODE(target.stat().st_mode))
+
+    runtime = FakeRuntime(compose_returncodes=[1, 0], compose_observer=observe)
+    service = make_service(tmp_path, runtime)
+    with valid_archive.open("rb") as archive:
+        task = service.upload("task-1", archive, "demo.tar.gz")
+    task.directory_rules = (DirectoryRule(path="data/mysql", mode="0770"),)
+    service.store.save(task)
+
+    first = service.deploy("task-1")
+    assert first.status is TaskStatus.FAILED
+    assert first.failure_phase is FailurePhase.DEPLOY
+    assert first.deployment_dir is not None
+    (first.deployment_dir / "data/mysql").chmod(0o755)
+
+    second = service.deploy("task-1")
+    assert second.status is TaskStatus.DEPLOYED
+    assert observed == [0o770, 0o770]
+
+
+def test_upload_failure_records_upload_phase(tmp_path):
+    service = make_service(tmp_path)
+    with pytest.raises(Exception):
+        service.upload("task-1", BytesIO(b"broken"), "broken.tar.gz")
+    task = service.store.get("task-1")
+    assert task.status is TaskStatus.FAILED
+    assert task.failure_phase is FailurePhase.UPLOAD
+    assert can_retry_task(task) is False
+
+
+def test_begin_deploy_persists_deploying_and_blocks_duplicate_queue(
+    tmp_path, valid_archive
+):
+    service = make_service(tmp_path)
+    with valid_archive.open("rb") as archive:
+        service.upload("task-1", archive, "demo.tar.gz")
+    queued = service.begin_deploy("task-1")
+    assert queued.status is TaskStatus.DEPLOYING
+    assert service.store.get("task-1").status is TaskStatus.DEPLOYING
+    with pytest.raises(DeploymentStateError):
+        service.begin_deploy("task-1")

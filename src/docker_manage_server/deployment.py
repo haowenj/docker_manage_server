@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 from threading import Lock
 from typing import Any, BinaryIO
@@ -10,17 +10,19 @@ from typing import Any, BinaryIO
 from .artifacts import (
     extract_and_review,
     overlay_directory,
-    prepare_server_directories,
     write_checksums,
 )
 from .deployment_config import (
     ConfigurationValidationError,
+    apply_directory_rules,
     can_edit_task,
+    can_retry_task,
+    effective_directory_rules,
     normalize_directory_rules,
     validate_directory_targets,
 )
 from .docker_runtime import DockerRuntime, DockerRuntimeError
-from .models import DeploymentTask, DirectoryRule, TaskStatus
+from .models import DeploymentTask, DirectoryRule, FailurePhase, TaskStatus
 from .storage import TaskStore
 
 
@@ -64,56 +66,74 @@ class DeploymentService:
             task.status = TaskStatus.PENDING_REVIEW
             task.app_name = review.app_name
             task.server_paths = review.server_paths
+            task.directory_rules = tuple(
+                DirectoryRule(path=value, mode="0777")
+                for value in review.server_paths
+                if not PurePosixPath(value).is_absolute()
+            )
+            task.failure_phase = None
             task.deployment_dir = self.store.deployment_dir(review.app_name)
             self.store.save(task)
             return task
         except Exception as exc:
             task.status = TaskStatus.FAILED
+            task.failure_phase = FailurePhase.UPLOAD
             task.error = str(exc)
             self.store.save(task)
             raise
 
     def deploy(self, task_id: str) -> DeploymentTask:
+        with self._task_lock(task_id):
+            task = self.store.get(task_id)
+            if can_retry_task(task):
+                task = self._begin_deploy_locked(task_id)
+            elif task.status is not TaskStatus.DEPLOYING:
+                raise DeploymentStateError(
+                    f"task {task_id} cannot deploy from status {task.status.value}"
+                )
+            if not task.app_name or task.deployment_dir is None:
+                raise DeploymentStateError(f"task {task_id} has no deployment target")
+            with self._app_lock(task.app_name):
+                try:
+                    deployment_dir = task.deployment_dir
+                    rules = effective_directory_rules(task)
+                    validate_directory_targets(task.extracted_dir, rules)
+                    validate_directory_targets(deployment_dir, rules)
+                    overlay_directory(task.extracted_dir, deployment_dir)
+                    apply_directory_rules(deployment_dir, rules)
+                    image_tar = deployment_dir / "images.tar"
+                    if image_tar.is_file():
+                        load_result = self.runtime.load_image(image_tar, deployment_dir)
+                        task.command_output += self._format_output("docker load", load_result)
+                        self._require_success("docker load", load_result)
+                    compose_result = self.runtime.compose_up(deployment_dir)
+                    task.command_output += self._format_output("docker compose", compose_result)
+                    self._require_success("docker compose", compose_result)
+                    task.status = TaskStatus.DEPLOYED
+                    task.failure_phase = None
+                except Exception as exc:
+                    task.status = TaskStatus.FAILED
+                    task.failure_phase = FailurePhase.DEPLOY
+                    task.error = str(exc)
+                return self.store.save(task)
+
+    def _begin_deploy_locked(self, task_id: str) -> DeploymentTask:
         task = self.store.get(task_id)
-        if task.status is not TaskStatus.PENDING_REVIEW:
+        if not can_retry_task(task):
             raise DeploymentStateError(
                 f"task {task_id} cannot deploy from status {task.status.value}"
             )
         if not task.app_name or task.deployment_dir is None:
             raise DeploymentStateError(f"task {task_id} has no deployment target")
+        task.status = TaskStatus.DEPLOYING
+        task.command_output = ""
+        task.error = None
+        task.failure_phase = None
+        return self.store.save(task)
 
-        lock = self._app_lock(task.app_name)
-        with lock:
-            task = self.store.get(task_id)
-            if task.status is not TaskStatus.PENDING_REVIEW:
-                raise DeploymentStateError(
-                    f"task {task_id} cannot deploy from status {task.status.value}"
-                )
-            task.status = TaskStatus.DEPLOYING
-            task.command_output = ""
-            task.error = None
-            self.store.save(task)
-            try:
-                deployment_dir = task.deployment_dir
-                assert deployment_dir is not None
-                overlay_directory(task.extracted_dir, deployment_dir)
-                prepare_server_directories(deployment_dir, task.server_paths)
-                image_tar = deployment_dir / "images.tar"
-                if image_tar.is_file():
-                    load_result = self.runtime.load_image(image_tar, deployment_dir)
-                    task.command_output += self._format_output("docker load", load_result)
-                    self._require_success("docker load", load_result)
-                compose_result = self.runtime.compose_up(deployment_dir)
-                task.command_output += self._format_output("docker compose", compose_result)
-                self._require_success("docker compose", compose_result)
-                task.status = TaskStatus.DEPLOYED
-                self.store.save(task)
-                return task
-            except Exception as exc:
-                task.status = TaskStatus.FAILED
-                task.error = str(exc)
-                self.store.save(task)
-                return task
+    def begin_deploy(self, task_id: str) -> DeploymentTask:
+        with self._task_lock(task_id):
+            return self._begin_deploy_locked(task_id)
 
     def edit_configuration(
         self,
@@ -198,14 +218,19 @@ class DeploymentService:
                         path.unlink()
 
     def discard(self, task_id: str) -> DeploymentTask:
-        task = self.store.get(task_id)
-        if task.status in {TaskStatus.EXTRACTING, TaskStatus.DEPLOYING, TaskStatus.DEPLOYED}:
-            raise DeploymentStateError(
-                f"task {task_id} cannot be discarded from status {task.status.value}"
-            )
-        discarded = task.model_copy(update={"status": TaskStatus.DISCARDED})
-        self.store.delete(task_id)
-        return discarded
+        with self._task_lock(task_id):
+            task = self.store.get(task_id)
+            if task.status in {
+                TaskStatus.EXTRACTING,
+                TaskStatus.DEPLOYING,
+                TaskStatus.DEPLOYED,
+            }:
+                raise DeploymentStateError(
+                    f"task {task_id} cannot be discarded from status {task.status.value}"
+                )
+            discarded = task.model_copy(update={"status": TaskStatus.DISCARDED})
+            self.store.delete(task_id)
+            return discarded
 
     def _app_lock(self, app_name: str) -> Lock:
         with self._lock_guard:

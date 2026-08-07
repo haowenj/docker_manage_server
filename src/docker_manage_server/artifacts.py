@@ -122,30 +122,6 @@ def overlay_directory(source: Path, target: Path) -> None:
             raise ValueError(f"unsupported overlay member: {relative}")
 
 
-def prepare_server_directories(
-    deployment_dir: Path,
-    server_paths: tuple[str, ...],
-) -> None:
-    root = Path(deployment_dir).resolve()
-    for value in server_paths:
-        path = PurePosixPath(value)
-        if path.is_absolute():
-            continue
-        if (
-            ".." in path.parts
-            or len(path.parts) < 2
-            or path.parts[0] != "files"
-        ):
-            raise ValueError(f"server path is outside deployment directory: {value}")
-        target = root.joinpath(*path.parts)
-        if not target.resolve(strict=False).is_relative_to(root):
-            raise ValueError(f"server path is outside deployment directory: {value}")
-        if target.exists() or target.is_symlink():
-            continue
-        target.mkdir(parents=True, exist_ok=False)
-        target.chmod(0o777)
-
-
 def write_checksums(root: Path) -> None:
     root = Path(root).resolve()
     lines = []

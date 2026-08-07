@@ -81,53 +81,6 @@ def test_overlay_preserves_mode_of_existing_directory(tmp_path: Path):
     assert stat.S_IMODE(target_directory.stat().st_mode) == 0o700
 
 
-def test_prepare_server_directories_creates_missing_relative_path_writable(tmp_path: Path):
-    deployment_dir = tmp_path / "deployments/demo"
-    deployment_dir.mkdir(parents=True)
-
-    artifacts.prepare_server_directories(deployment_dir, ("files/sqlite",))
-
-    created = deployment_dir / "files/sqlite"
-    assert created.is_dir()
-    assert stat.S_IMODE(created.stat().st_mode) == 0o777
-
-
-def test_prepare_server_directories_preserves_existing_mode(tmp_path: Path):
-    deployment_dir = tmp_path / "deployments/demo"
-    existing = deployment_dir / "files/sqlite"
-    existing.mkdir(parents=True)
-    existing.chmod(0o700)
-
-    artifacts.prepare_server_directories(deployment_dir, ("files/sqlite",))
-
-    assert stat.S_IMODE(existing.stat().st_mode) == 0o700
-
-
-def test_prepare_server_directories_ignores_absolute_path(tmp_path: Path):
-    deployment_dir = tmp_path / "deployments/demo"
-    deployment_dir.mkdir(parents=True)
-    external = tmp_path / "external"
-
-    artifacts.prepare_server_directories(deployment_dir, (str(external),))
-
-    assert not external.exists()
-
-
-def test_prepare_server_directories_rejects_symlink_escape(tmp_path: Path):
-    deployment_dir = tmp_path / "deployments/demo"
-    files_dir = deployment_dir / "files"
-    files_dir.mkdir(parents=True)
-    external = tmp_path / "external"
-    external.mkdir()
-    (files_dir / "link").symlink_to(external, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="outside deployment directory"):
-        artifacts.prepare_server_directories(
-            deployment_dir,
-            ("files/link/sqlite",),
-        )
-
-
 def test_write_checksums_matches_all_regular_workspace_files(tmp_path: Path):
     root = tmp_path / "workspace"
     root.mkdir()
