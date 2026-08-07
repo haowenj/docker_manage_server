@@ -17,6 +17,16 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
+class FailurePhase(str, Enum):
+    UPLOAD = "upload"
+    DEPLOY = "deploy"
+
+
+class DirectoryRule(BaseModel):
+    path: str
+    mode: str = Field(pattern=r"^0[0-7]{3}$")
+
+
 class DeploymentTask(BaseModel):
     model_config = ConfigDict(use_enum_values=False)
 
@@ -28,6 +38,9 @@ class DeploymentTask(BaseModel):
     deployment_dir: Path | None = None
     app_name: str | None = None
     server_paths: tuple[str, ...] = ()
+    directory_rules: tuple[DirectoryRule, ...] | None = None
+    failure_phase: FailurePhase | None = None
+    edited_at: datetime | None = None
     error: str | None = None
     command_output: str = ""
     created_at: datetime | None = None

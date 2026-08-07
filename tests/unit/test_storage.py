@@ -64,3 +64,20 @@ def test_old_task_json_uses_state_file_mtime(tmp_path: Path):
 
     assert loaded.created_at is not None
     assert loaded.updated_at == loaded.created_at
+
+
+def test_old_task_json_defaults_configuration_editing_fields(tmp_path: Path):
+    store = TaskStore(tmp_path)
+    store.create("legacy-config", "legacy.tar.gz")
+    state_path = tmp_path / "tasks/legacy-config.json"
+    body = json.loads(state_path.read_text(encoding="utf-8"))
+    body.pop("directory_rules", None)
+    body.pop("failure_phase", None)
+    body.pop("edited_at", None)
+    state_path.write_text(json.dumps(body), encoding="utf-8")
+
+    loaded = store.get("legacy-config")
+
+    assert loaded.directory_rules is None
+    assert loaded.failure_phase is None
+    assert loaded.edited_at is None
