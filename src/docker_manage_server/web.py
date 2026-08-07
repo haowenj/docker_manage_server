@@ -56,6 +56,30 @@ def _read_optional(path: Path) -> str:
         return ""
 
 
+def _container_page(
+    request: Request,
+    runtime: DockerRuntime,
+    container_id: str,
+    template_name: str,
+) -> HTMLResponse:
+    try:
+        item = DockerRuntime._serialize_container(runtime.get_container(container_id))
+    except ContainerNotFoundError:
+        return _web_error(request, 404, "找不到容器", container_id)
+    except DockerRuntimeError as exc:
+        return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+    container = container_view(item)
+    return templates.TemplateResponse(
+        request=request,
+        name=template_name,
+        context={
+            "page_title": container["name"] or container["item"].get("short_id"),
+            "active_nav": "containers",
+            "container": container,
+        },
+    )
+
+
 def create_web_router(
     store: TaskStore,
     deployment: DeploymentService,
@@ -175,20 +199,20 @@ def create_web_router(
 
     @router.get("/containers/{container_id}", response_class=HTMLResponse)
     def container_detail(request: Request, container_id: str):
-        try:
-            item = DockerRuntime._serialize_container(runtime.get_container(container_id))
-        except ContainerNotFoundError:
-            return _web_error(request, 404, "找不到容器", container_id)
-        except DockerRuntimeError as exc:
-            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
-        return templates.TemplateResponse(
-            request=request,
-            name="containers/detail.html",
-            context={
-                "page_title": item.get("name") or item.get("short_id"),
-                "active_nav": "containers",
-                "container": container_view(item),
-            },
+        return _container_page(
+            request, runtime, container_id, "containers/detail.html"
+        )
+
+    @router.get("/containers/{container_id}/logs", response_class=HTMLResponse)
+    def container_logs(request: Request, container_id: str):
+        return _container_page(
+            request, runtime, container_id, "containers/logs.html"
+        )
+
+    @router.get("/containers/{container_id}/terminal", response_class=HTMLResponse)
+    def container_terminal(request: Request, container_id: str):
+        return _container_page(
+            request, runtime, container_id, "containers/terminal.html"
         )
 
     return router

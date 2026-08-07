@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">{% endblock %}
+{% block content %}
+<section class="panel tool-page-panel terminal-panel" data-terminal-url="/api/containers/{{ container.item.id }}/terminal" data-terminal-command="/bin/sh">
+  <div class="panel-heading">
+    <div>
+      <h2>{{ container.name }} · 在线终端</h2>
+      <span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span>
+    </div>
+    <a class="button button-secondary" href="/containers/{{ container.item.id }}">返回容器详情</a>
+  </div>
+  <div class="toolbar">
+    <span data-terminal-status>尚未连接</span>
+    <button class="button button-primary" type="button" data-terminal-connect>连接终端</button>
+  </div>
+  <div class="terminal-viewport" data-terminal-viewport></div>
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/js/terminal.js"></script>{% endblock %}

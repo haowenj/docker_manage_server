@@ -1,18 +1,8 @@
 from docker_manage_server.docker_runtime import ContainerNotFoundError, DockerRuntimeError
 
 
-def test_container_list_is_server_rendered(web_context):
-    client, _store, _runtime = web_context
-    response = client.get("/containers")
-    assert response.status_code == 200
-    assert "server" in response.text
-    assert "demo/server:1" in response.text
-    assert "0.0.0.0:6308" in response.text
-
-
-def test_container_detail_exposes_logs_and_terminal_targets(web_context):
-    client, _store, runtime = web_context
-    runtime.get_container = lambda _container_id: type(
+def _stub_container():
+    return type(
         "Container",
         (),
         {
@@ -31,12 +21,64 @@ def test_container_detail_exposes_logs_and_terminal_targets(web_context):
             },
         },
     )()
+
+
+def test_container_list_is_server_rendered(web_context):
+    client, _store, _runtime = web_context
+    response = client.get("/containers")
+    assert response.status_code == 200
+    assert "server" in response.text
+    assert "demo/server:1" in response.text
+    assert "0.0.0.0:6308" in response.text
+
+
+def test_container_detail_links_to_standalone_tool_pages(web_context):
+    client, _store, runtime = web_context
+    runtime.get_container = lambda _container_id: _stub_container()
+
     response = client.get("/containers/abc123")
+
+    assert response.status_code == 200
+    assert 'href="/containers/abc123/logs"' in response.text
+    assert 'href="/containers/abc123/terminal"' in response.text
+    assert response.text.count('target="_blank"') == 2
+    assert response.text.count('rel="noopener"') == 2
+    assert "data-log-viewer" not in response.text
+    assert "data-terminal-url" not in response.text
+    assert "/static/js/terminal.js" not in response.text
+    assert "/static/vendor/xterm/xterm.css" not in response.text
+
+
+def test_container_log_page_reuses_existing_log_viewer(web_context):
+    client, _store, runtime = web_context
+    runtime.get_container = lambda _container_id: _stub_container()
+
+    response = client.get("/containers/abc123/logs")
+
     assert response.status_code == 200
     assert 'data-log-url="/api/containers/abc123/logs"' in response.text
+    assert "data-log-tail" in response.text
+    assert "data-log-timestamps" in response.text
+    assert "data-log-refresh" in response.text
+    assert "log-output-viewport" in response.text
+    assert 'href="/containers/abc123"' in response.text
+    assert "/static/js/terminal.js" not in response.text
+
+
+def test_container_terminal_page_loads_local_xterm(web_context):
+    client, _store, runtime = web_context
+    runtime.get_container = lambda _container_id: _stub_container()
+
+    response = client.get("/containers/abc123/terminal")
+
+    assert response.status_code == 200
     assert 'data-terminal-url="/api/containers/abc123/terminal"' in response.text
+    assert 'data-terminal-command="/bin/sh"' in response.text
+    assert "terminal-viewport" in response.text
+    assert "/static/vendor/xterm/xterm.css" in response.text
     assert 'type="module"' in response.text
     assert "/static/js/terminal.js" in response.text
+    assert 'href="/containers/abc123"' in response.text
 
 
 def test_container_pages_render_html_errors(web_context):
@@ -44,9 +86,15 @@ def test_container_pages_render_html_errors(web_context):
     runtime.get_container = lambda _value: (_ for _ in ()).throw(
         ContainerNotFoundError("x")
     )
-    missing = client.get("/containers/missing")
-    assert missing.status_code == 404
-    assert "找不到容器" in missing.text
+
+    for path in (
+        "/containers/missing",
+        "/containers/missing/logs",
+        "/containers/missing/terminal",
+    ):
+        missing = client.get(path)
+        assert missing.status_code == 404
+        assert "找不到容器" in missing.text
 
     runtime.list_containers = lambda: (_ for _ in ()).throw(
         DockerRuntimeError("offline")
@@ -54,3 +102,15 @@ def test_container_pages_render_html_errors(web_context):
     unavailable = client.get("/containers")
     assert unavailable.status_code == 503
     assert "offline" in unavailable.text
+
+    runtime.get_container = lambda _value: (_ for _ in ()).throw(
+        DockerRuntimeError("offline")
+    )
+    for path in (
+        "/containers/abc123",
+        "/containers/abc123/logs",
+        "/containers/abc123/terminal",
+    ):
+        unavailable = client.get(path)
+        assert unavailable.status_code == 503
+        assert "offline" in unavailable.text

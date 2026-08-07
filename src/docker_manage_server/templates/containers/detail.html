@@ -1,10 +1,13 @@
 {% extends "base.html" %}
-{% block head %}<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">{% endblock %}
 {% block content %}
 <section class="panel">
-  <div class="panel-heading">
+  <div class="panel-heading container-heading">
     <h2>{{ container.name }}</h2>
-    <span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span>
+    <div class="container-heading-actions">
+      <span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span>
+      <a class="button button-secondary" href="/containers/{{ container.item.id }}/logs" target="_blank" rel="noopener" aria-label="查看 {{ container.name }} 日志（新标签页）">查看日志</a>
+      <a class="button button-primary" href="/containers/{{ container.item.id }}/terminal" target="_blank" rel="noopener" aria-label="连接 {{ container.name }} 终端（新标签页）">连接终端</a>
+    </div>
   </div>
   <dl class="definition-grid">
     <dt>容器 ID</dt><dd>{{ container.item.id }}</dd>
@@ -22,19 +25,4 @@
 </div>
 <section class="panel"><h2>标签</h2><pre>{% for key, value in container.item.labels|dictsort %}{{ key }}={{ value }}
 {% else %}暂无标签{% endfor %}</pre></section>
-<section class="panel log-panel" data-log-viewer data-log-url="/api/containers/{{ container.item.id }}/logs">
-  <div class="panel-heading"><h2>日志</h2></div>
-  <div class="toolbar">
-    <label>行数 <select data-log-tail><option>100</option><option>500</option><option value="all">全部</option></select></label>
-    <label><input type="checkbox" data-log-timestamps> 显示时间戳</label>
-    <button class="button button-secondary" type="button" data-log-refresh>刷新日志</button>
-  </div>
-  <pre data-log-output>点击“刷新日志”读取日志。</pre>
-</section>
-<section class="panel terminal-panel" data-terminal-url="/api/containers/{{ container.item.id }}/terminal" data-terminal-command="/bin/sh">
-  <div class="panel-heading"><h2>在线终端</h2><span data-terminal-status>尚未连接</span></div>
-  <button class="button button-primary" type="button" data-terminal-connect>连接终端</button>
-  <div class="terminal-viewport" data-terminal-viewport></div>
-</section>
 {% endblock %}
-{% block scripts %}<script type="module" src="/static/js/terminal.js"></script>{% endblock %}
