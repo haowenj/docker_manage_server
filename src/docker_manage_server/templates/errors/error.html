@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel error-panel">
+  <p class="status status-failed">HTTP {{ status_code }}</p>
+  <h2>{{ error_title }}</h2>
+  <pre>{{ error_detail }}</pre>
+  <p><a class="button button-secondary" href="/">返回管理台</a></p>
+</section>
+{% endblock %}

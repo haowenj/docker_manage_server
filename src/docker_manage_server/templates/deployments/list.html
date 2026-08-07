@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+{% if upload_error %}<div class="alert alert-danger">{{ upload_error }}</div>{% endif %}
+<section class="panel">
+  <div class="panel-heading"><h2>上传离线部署归档</h2></div>
+  <form class="upload-form" action="/deployments" method="post" enctype="multipart/form-data">
+    <label>选择 .tar.gz 文件 <input type="file" name="file" accept=".tar.gz,application/gzip" required></label>
+    <button class="button button-primary" type="submit">上传并审核</button>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>部署任务</h2><span class="muted">按最近更新时间排序</span></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>应用</th><th>归档</th><th>状态</th><th>创建时间</th><th>更新时间</th><th></th></tr></thead>
+      <tbody>
+      {% for entry in tasks %}
+        <tr>
+          <td>{{ entry.task.app_name or "—" }}</td>
+          <td>{{ entry.task.original_filename }}</td>
+          <td>{% with status_value=entry.status_value, status_label=entry.status_label %}{% include "components/status_badge.html" %}{% endwith %}</td>
+          <td>{{ entry.created_at }}</td>
+          <td>{{ entry.updated_at }}</td>
+          <td><a href="/deployments/{{ entry.task.task_id }}">详情</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-cell">暂无部署任务，请先上传离线部署归档。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

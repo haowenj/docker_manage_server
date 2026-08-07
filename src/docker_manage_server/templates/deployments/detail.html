@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+{% set task = task_view.task %}
+<section class="panel" data-task-poll-url="/api/deployment-tasks/{{ task.task_id }}" data-task-status="{{ task_view.status_value }}">
+  <div class="panel-heading">
+    <h2>{{ task.app_name or task.original_filename }}</h2>
+    <span class="status status-{{ task_view.status_value }}" data-task-status-label>{{ task_view.status_label }}</span>
+  </div>
+  <dl class="definition-grid">
+    <dt>任务 ID</dt><dd>{{ task.task_id }}</dd>
+    <dt>归档文件</dt><dd>{{ task.original_filename }}</dd>
+    <dt>创建时间</dt><dd>{{ task_view.created_at }}</dd>
+    <dt>更新时间</dt><dd>{{ task_view.updated_at }}</dd>
+    <dt>部署目录</dt><dd>{{ task.deployment_dir or "—" }}</dd>
+  </dl>
+  {% if task_view.status_value == "pending_review" %}
+  <div class="button-row">
+    <form method="post" action="/deployments/{{ task.task_id }}/deploy" data-confirm="确认部署此归档？">
+      <button class="button button-primary" type="submit">确认部署</button>
+    </form>
+    <form method="post" action="/deployments/{{ task.task_id }}/discard" data-confirm="确认丢弃此任务？该操作不可恢复。">
+      <button class="button button-danger" type="submit">丢弃任务</button>
+    </form>
+  </div>
+  {% endif %}
+</section>
+{% if task.error %}<section class="panel"><h2>错误</h2><pre data-task-error>{{ task.error }}</pre></section>{% endif %}
+<section class="panel">
+  <div class="panel-heading"><h2>归档文件</h2><span class="muted">{{ files|length }} 项</span></div>
+  <ul class="file-list">
+  {% for file in files %}<li>{{ file.path }} <span class="muted">{{ file.kind }} · {{ file.size }} B</span></li>
+  {% else %}<li class="muted">没有可审核的文件。</li>{% endfor %}
+  </ul>
+</section>
+<section class="panel">
+  <div class="alert alert-warning">.env 可能包含密码、令牌等敏感信息，请勿向无关人员展示。</div>
+  <h2>.env</h2><pre>{{ env_text or "文件不存在" }}</pre>
+</section>
+<section class="panel"><h2>compose.yaml</h2><pre>{{ compose_text or "文件不存在" }}</pre></section>
+<section class="panel"><h2>命令输出</h2><pre data-task-output>{{ task.command_output or "暂无命令输出" }}</pre></section>
+{% endblock %}

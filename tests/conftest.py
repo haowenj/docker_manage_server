@@ -14,10 +14,11 @@ def _write_archive(
     *,
     include_files: bool = False,
     app_name: str = "demo",
+    env_text: str = "SECRET=value\n",
 ) -> Path:
     payload = root / "payload"
     payload.mkdir(parents=True)
-    (payload / ".env").write_text("SECRET=value\n", encoding="utf-8")
+    (payload / ".env").write_text(env_text, encoding="utf-8")
     (payload / "compose.yaml").write_text(
         "services:\n  web:\n    image: demo:latest\n", encoding="utf-8"
     )
@@ -57,4 +58,13 @@ def valid_archive_with_files(tmp_path: Path) -> Path:
 def unsafe_app_name_archive(tmp_path: Path) -> Path:
     return _write_archive(
         tmp_path / "unsafe-app", tmp_path / "unsafe-app.tar.gz", app_name="demo name"
+    )
+
+
+@pytest.fixture
+def html_injection_archive(tmp_path: Path) -> Path:
+    return _write_archive(
+        tmp_path / "html-injection",
+        tmp_path / "html-injection.tar.gz",
+        env_text="VALUE=<script>alert('x')</script>\n",
     )
