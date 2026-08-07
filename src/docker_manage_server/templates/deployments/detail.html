@@ -11,13 +11,19 @@
     <dt>归档文件</dt><dd>{{ task.original_filename }}</dd>
     <dt>创建时间</dt><dd>{{ task_view.created_at }}</dd>
     <dt>更新时间</dt><dd>{{ task_view.updated_at }}</dd>
+    {% if task.edited_at %}<dt>最近编辑</dt><dd>{{ task_view.edited_at }}</dd>{% endif %}
     <dt>部署目录</dt><dd>{{ task.deployment_dir or "—" }}</dd>
   </dl>
-  {% if task_view.status_value == "pending_review" %}
+  {% if task_view.editable or task_view.retryable %}
   <div class="button-row">
+    {% if task_view.editable %}
+    <a class="button button-secondary" href="/deployments/{{ task.task_id }}/edit">{{ "编辑并重试" if task_view.status_value == "failed" else "编辑配置" }}</a>
+    {% endif %}
+    {% if task_view.retryable %}
     <form method="post" action="/deployments/{{ task.task_id }}/deploy" data-confirm="确认部署此归档？">
-      <button class="button button-primary" type="submit">确认部署</button>
+      <button class="button button-primary" type="submit">{{ "重新部署" if task_view.status_value == "failed" else "确认部署" }}</button>
     </form>
+    {% endif %}
     <form method="post" action="/deployments/{{ task.task_id }}/discard" data-confirm="确认丢弃此任务？该操作不可恢复。">
       <button class="button button-danger" type="submit">丢弃任务</button>
     </form>
@@ -25,6 +31,19 @@
   {% endif %}
 </section>
 {% if task.error %}<section class="panel"><h2>错误</h2><pre data-task-error>{{ task.error }}</pre></section>{% endif %}
+<section class="panel">
+  <div class="panel-heading"><h2>部署目录准备</h2><span class="muted">{{ directories|length }} 项</span></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>相对路径</th><th>权限</th><th>当前状态</th></tr></thead>
+    <tbody>
+    {% for directory in directories %}
+      <tr><td>{{ directory.path }}</td><td>{{ directory.mode }}</td><td>{{ "已存在" if directory.exists else "尚未创建" }}</td></tr>
+    {% else %}
+      <tr><td class="empty-cell" colspan="3">没有配置部署目录。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
 <section class="panel">
   <div class="panel-heading"><h2>归档文件</h2><span class="muted">{{ files|length }} 项</span></div>
   <ul class="file-list">

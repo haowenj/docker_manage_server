@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+from .deployment_config import can_edit_task, can_retry_task
 from .models import DeploymentTask, TaskStatus
 
 
@@ -25,6 +26,9 @@ def task_view(task: DeploymentTask) -> dict[str, Any]:
         "status_label": STATUS_LABELS[task.status],
         "created_at": _format_time(task.created_at),
         "updated_at": _format_time(task.updated_at),
+        "edited_at": _format_time(task.edited_at),
+        "editable": can_edit_task(task),
+        "retryable": can_retry_task(task),
     }
 
 

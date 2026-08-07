@@ -1,17 +1,28 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from .artifacts import list_files
-from .deployment import DeploymentService, DeploymentStateError
+from .deployment import (
+    DeploymentConfigurationError,
+    DeploymentConfigurationTooLargeError,
+    DeploymentService,
+    DeploymentStateError,
+)
+from .deployment_config import (
+    can_edit_task,
+    effective_directory_rules,
+)
 from .docker_runtime import ContainerNotFoundError, DockerRuntime, DockerRuntimeError
-from .models import TaskStatus
+from .models import DirectoryRule
 from .storage import TaskStore
 from .web_views import container_view, dashboard_metrics, task_view
 
@@ -54,6 +65,56 @@ def _read_optional(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return ""
+
+
+def _directory_views(task) -> list[dict[str, Any]]:
+    root = task.deployment_dir
+    rows = []
+    for rule in effective_directory_rules(task):
+        target = root / rule.path if root is not None else None
+        rows.append(
+            {
+                "path": rule.path,
+                "mode": rule.mode,
+                "exists": bool(
+                    target
+                    and target.is_dir()
+                    and not target.is_symlink()
+                ),
+            }
+        )
+    return rows
+
+
+def _configuration_context(
+    task,
+    env_text: str | None = None,
+    compose_text: str | None = None,
+    directories: list[dict[str, Any]] | None = None,
+    edit_error: str | None = None,
+) -> dict[str, Any]:
+    if directories is None:
+        directories = [
+            rule.model_dump(mode="json")
+            for rule in effective_directory_rules(task)
+        ]
+    return {
+        "page_title": f"编辑 {task.app_name or task.original_filename}",
+        "active_nav": "deployments",
+        "task_view": task_view(task),
+        "env_text": (
+            _read_optional(task.extracted_dir / ".env")
+            if env_text is None
+            else env_text
+        ),
+        "compose_text": (
+            _read_optional(task.extracted_dir / "compose.yaml")
+            if compose_text is None
+            else compose_text
+        ),
+        "directories": directories,
+        "edit_error": edit_error,
+    }
 
 
 def _container_page(
@@ -153,8 +214,60 @@ def create_web_router(
                 "files": files,
                 "env_text": env_text,
                 "compose_text": compose_text,
+                "directories": _directory_views(task),
             },
         )
+
+    @router.get("/deployments/{task_id}/edit", response_class=HTMLResponse)
+    def edit_deployment(request: Request, task_id: str):
+        try:
+            task = store.get(task_id)
+        except KeyError:
+            return _web_error(request, 404, "找不到部署任务", task_id)
+        if not can_edit_task(task):
+            return _web_error(request, 409, "任务当前状态不允许编辑", task.status.value)
+        return templates.TemplateResponse(
+            request=request,
+            name="deployments/edit.html",
+            context=_configuration_context(task),
+        )
+
+    @router.post("/deployments/{task_id}/edit", response_class=HTMLResponse)
+    def save_deployment_edit(
+        request: Request,
+        task_id: str,
+        env: str = Form(...),
+        compose: str = Form(...),
+        directories_json: str = Form("[]"),
+    ):
+        raw: Any = []
+        try:
+            task = store.get(task_id)
+            raw = json.loads(directories_json)
+            if not isinstance(raw, list):
+                raise ValueError("directories must be a list")
+            directories = tuple(DirectoryRule.model_validate(item) for item in raw)
+            deployment.edit_configuration(task_id, env, compose, directories)
+        except KeyError:
+            return _web_error(request, 404, "找不到部署任务", task_id)
+        except DeploymentStateError as exc:
+            return _web_error(request, 409, "任务当前状态不允许编辑", str(exc))
+        except DeploymentConfigurationTooLargeError as exc:
+            return templates.TemplateResponse(
+                request=request,
+                name="deployments/edit.html",
+                context=_configuration_context(task, env, compose, raw, str(exc)),
+                status_code=413,
+            )
+        except (ValueError, ValidationError, DeploymentConfigurationError) as exc:
+            submitted = raw if isinstance(raw, list) else []
+            return templates.TemplateResponse(
+                request=request,
+                name="deployments/edit.html",
+                context=_configuration_context(task, env, compose, submitted, str(exc)),
+                status_code=422,
+            )
+        return RedirectResponse(f"/deployments/{task_id}", status_code=303)
 
     @router.post("/deployments/{task_id}/deploy")
     def deploy_archive(
@@ -163,11 +276,11 @@ def create_web_router(
         background_tasks: BackgroundTasks,
     ):
         try:
-            task = store.get(task_id)
+            deployment.begin_deploy(task_id)
         except KeyError:
             return _web_error(request, 404, "找不到部署任务", task_id)
-        if task.status is not TaskStatus.PENDING_REVIEW:
-            return _web_error(request, 409, "任务当前状态不允许部署", task.status.value)
+        except DeploymentStateError as exc:
+            return _web_error(request, 409, "任务当前状态不允许部署", str(exc))
         background_tasks.add_task(deployment.deploy, task_id)
         return RedirectResponse(f"/deployments/{task_id}", status_code=303)
 
