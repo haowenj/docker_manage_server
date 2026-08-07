@@ -35,3 +35,31 @@ if (taskRoot && taskRoot.dataset.taskStatus === "deploying") {
     }
   }, 2000);
 }
+
+document.querySelectorAll("[data-log-viewer]").forEach((viewer) => {
+  const tail = viewer.querySelector("[data-log-tail]");
+  const timestamps = viewer.querySelector("[data-log-timestamps]");
+  const refresh = viewer.querySelector("[data-log-refresh]");
+  const output = viewer.querySelector("[data-log-output]");
+
+  refresh.addEventListener("click", async () => {
+    refresh.disabled = true;
+    output.textContent = "正在读取日志…";
+    const query = new URLSearchParams({
+      tail: tail.value,
+      timestamps: String(timestamps.checked),
+    });
+    try {
+      const response = await fetch(`${viewer.dataset.logUrl}?${query}`, {
+        headers: { Accept: "text/plain" },
+      });
+      const text = await response.text();
+      if (!response.ok) throw new Error(text || `HTTP ${response.status}`);
+      output.textContent = text || "日志为空。";
+    } catch (error) {
+      output.textContent = `日志读取失败：${error.message}`;
+    } finally {
+      refresh.disabled = false;
+    }
+  });
+});

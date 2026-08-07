@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from .artifacts import list_files
 from .deployment import DeploymentService, DeploymentStateError
-from .docker_runtime import DockerRuntime, DockerRuntimeError
+from .docker_runtime import ContainerNotFoundError, DockerRuntime, DockerRuntimeError
 from .models import TaskStatus
 from .storage import TaskStore
 from .web_views import container_view, dashboard_metrics, task_view
@@ -156,5 +156,39 @@ def create_web_router(
         except DeploymentStateError as exc:
             return _web_error(request, 409, "任务当前状态不允许丢弃", str(exc))
         return RedirectResponse("/deployments", status_code=303)
+
+    @router.get("/containers", response_class=HTMLResponse)
+    def containers_page(request: Request):
+        try:
+            items = runtime.list_containers()
+        except DockerRuntimeError as exc:
+            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+        return templates.TemplateResponse(
+            request=request,
+            name="containers/list.html",
+            context={
+                "page_title": "容器管理",
+                "active_nav": "containers",
+                "containers": [container_view(item) for item in items],
+            },
+        )
+
+    @router.get("/containers/{container_id}", response_class=HTMLResponse)
+    def container_detail(request: Request, container_id: str):
+        try:
+            item = DockerRuntime._serialize_container(runtime.get_container(container_id))
+        except ContainerNotFoundError:
+            return _web_error(request, 404, "找不到容器", container_id)
+        except DockerRuntimeError as exc:
+            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+        return templates.TemplateResponse(
+            request=request,
+            name="containers/detail.html",
+            context={
+                "page_title": item.get("name") or item.get("short_id"),
+                "active_nav": "containers",
+                "container": container_view(item),
+            },
+        )
 
     return router
