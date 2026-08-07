@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile, WebSocket
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 
 from .artifacts import list_files
@@ -23,6 +24,7 @@ from .docker_runtime import (
 )
 from .models import DeploymentTask, TaskStatus
 from .storage import TaskStore
+from .web import PACKAGE_ROOT, create_web_router
 
 
 def create_app(
@@ -40,6 +42,9 @@ def create_app(
     app.state.store = store
     app.state.runtime = runtime
     app.state.deployment = deployment
+
+    app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
+    app.include_router(create_web_router(store, deployment, runtime))
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:

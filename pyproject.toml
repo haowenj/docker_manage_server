@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "docker>=7.2,<8",
     "fastapi>=0.115,<1",
+    "jinja2>=3.1,<4",
     "python-multipart>=0.0.20,<1",
     "uvicorn[standard]>=0.30,<1",
 ]
@@ -22,6 +23,21 @@ test = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+docker_manage_server = [
+    "templates/*.html",
+    "templates/components/*.html",
+    "templates/deployments/*.html",
+    "templates/containers/*.html",
+    "templates/errors/*.html",
+    "static/css/*.css",
+    "static/js/*.js",
+    "static/vendor/xterm/*.mjs",
+    "static/vendor/xterm/*.css",
+    "static/vendor/xterm/*.txt",
+    "static/vendor/xterm/*.json",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

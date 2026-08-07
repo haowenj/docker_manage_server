@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-actions">
+  <p class="page-intro">查看部署任务与当前 Docker 容器状态。</p>
+  <a class="button button-primary" href="/deployments">上传部署归档</a>
+</div>
+{% if docker_error %}
+<div class="alert alert-danger">Docker daemon 不可用：{{ docker_error }}</div>
+{% endif %}
+<section class="metric-grid" aria-label="运行统计">
+  <article class="metric"><span>全部容器</span><strong>{{ metrics.containers }}</strong></article>
+  <article class="metric"><span>运行中</span><strong>{{ metrics.running }}</strong></article>
+  <article class="metric"><span>待审核</span><strong>{{ metrics.pending_review }}</strong></article>
+  <article class="metric"><span>已部署</span><strong>{{ metrics.deployed }}</strong></article>
+  <article class="metric"><span>失败任务</span><strong>{{ metrics.failed }}</strong></article>
+</section>
+<div class="content-grid">
+  <section class="panel">
+    <div class="panel-heading"><h2>最近部署任务</h2><a href="/deployments">查看全部</a></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>应用</th><th>状态</th><th>更新时间</th></tr></thead>
+        <tbody>
+        {% for entry in tasks %}
+          <tr>
+            <td><a href="/deployments/{{ entry.task.task_id }}">{{ entry.task.app_name or entry.task.original_filename }}</a></td>
+            <td>{% with status_value=entry.status_value, status_label=entry.status_label %}{% include "components/status_badge.html" %}{% endwith %}</td>
+            <td>{{ entry.updated_at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty-cell">暂无部署任务</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><h2>容器</h2><a href="/containers">查看全部</a></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>名称</th><th>镜像</th><th>状态</th></tr></thead>
+        <tbody>
+        {% for container in containers %}
+          <tr>
+            <td><a href="/containers/{{ container.item.id }}">{{ container.name }}</a></td>
+            <td>{{ container.image }}</td>
+            <td><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3" class="empty-cell">暂无容器</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

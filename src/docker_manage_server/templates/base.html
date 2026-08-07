@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · Docker Manage</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="trust-warning">未启用鉴权，仅限受信任内网</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/">Docker Manage</a>
+      <nav class="sidebar-nav" aria-label="主导航">
+        <a class="{{ 'active' if active_nav == 'dashboard' else '' }}" href="/">运行概览</a>
+        <a class="{{ 'active' if active_nav == 'deployments' else '' }}" href="/deployments">部署任务</a>
+        <a class="{{ 'active' if active_nav == 'containers' else '' }}" href="/containers">容器管理</a>
+      </nav>
+    </aside>
+    <main class="main-content">
+      <header class="page-header"><h1>{{ page_title }}</h1></header>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script defer src="{{ url_for('static', path='/js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
