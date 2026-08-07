@@ -13,6 +13,8 @@ from docker_manage_server.storage import TaskStore
 class WebFakeRuntime:
     def __init__(self):
         self.available = True
+        self.compose_config_returncode = 0
+        self.compose_config_stderr = b""
         self.containers = [
             {
                 "id": "abc123",
@@ -47,6 +49,13 @@ class WebFakeRuntime:
 
     def compose_up(self, cwd):
         return SimpleNamespace(returncode=0, stdout=b"started\n", stderr=b"")
+
+    def compose_config(self, project_dir, compose_file, env_file):
+        return SimpleNamespace(
+            returncode=self.compose_config_returncode,
+            stdout=b"",
+            stderr=self.compose_config_stderr,
+        )
 
     def create_terminal(self, container_id, command):
         from docker_manage_server.docker_runtime import ContainerNotRunningError

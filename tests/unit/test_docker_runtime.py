@@ -36,6 +36,36 @@ def test_compose_up_uses_fixed_directory_and_no_shell(tmp_path):
     assert calls[0][1]["shell"] is False
 
 
+def test_compose_config_uses_candidate_files_project_directory_and_no_shell(tmp_path):
+    calls = []
+
+    def runner(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    compose_file = tmp_path / ".compose.candidate.yaml"
+    env_file = tmp_path / ".env.candidate"
+    result = DockerRuntime(
+        client=SimpleNamespace(), command_runner=runner
+    ).compose_config(tmp_path, compose_file, env_file)
+
+    assert result.returncode == 0
+    assert calls[0][0] == [
+        "docker",
+        "compose",
+        "--project-directory",
+        str(tmp_path),
+        "--env-file",
+        str(env_file),
+        "-f",
+        str(compose_file),
+        "config",
+        "--quiet",
+    ]
+    assert calls[0][1]["cwd"] == str(tmp_path)
+    assert calls[0][1]["shell"] is False
+
+
 def test_logs_passes_tail_and_timestamps():
     calls = {}
 

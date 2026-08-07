@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -18,6 +20,9 @@ class ApiFakeRuntime:
 
     def get_container(self, container_id):
         raise ContainerNotFoundError(container_id)
+
+    def compose_config(self, project_dir, compose_file, env_file):
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
 
 @pytest.fixture

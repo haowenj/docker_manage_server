@@ -81,6 +81,28 @@ class DockerRuntime:
             cwd,
         )
 
+    def compose_config(
+        self,
+        project_dir: Path,
+        compose_file: Path,
+        env_file: Path,
+    ) -> Any:
+        return self._run(
+            [
+                "docker",
+                "compose",
+                "--project-directory",
+                str(project_dir),
+                "--env-file",
+                str(env_file),
+                "-f",
+                str(compose_file),
+                "config",
+                "--quiet",
+            ],
+            project_dir,
+        )
+
     def create_terminal(self, container_id: str, command: list[str]) -> TerminalSession:
         container = self.get_container(container_id)
         state = container.attrs.get("State", {})
