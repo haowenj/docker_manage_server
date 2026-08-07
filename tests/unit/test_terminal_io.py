@@ -1,4 +1,8 @@
-from docker_manage_server.api import _socket_read, _socket_send
+import asyncio
+
+from starlette.websockets import WebSocketDisconnect
+
+from docker_manage_server.api import _close_websocket, _socket_read, _socket_send
 
 
 class SocketIoLike:
@@ -46,3 +50,11 @@ def test_terminal_socket_adapter_writes_through_raw_socket_when_available():
 def test_terminal_socket_adapter_reads_through_raw_socket_when_available():
     socket = SocketIoWithRawSocket()
     assert _socket_read(socket) == b"raw-output"
+
+
+def test_terminal_cleanup_ignores_already_disconnected_websocket():
+    class DisconnectedWebSocket:
+        async def close(self):
+            raise WebSocketDisconnect(code=1006)
+
+    asyncio.run(_close_websocket(DisconnectedWebSocket()))

@@ -216,10 +216,7 @@ def create_app(
                 if not task.done():
                     task.cancel()
             await asyncio.gather(reader, writer, return_exceptions=True)
-            try:
-                await websocket.close()
-            except RuntimeError:
-                pass
+            await _close_websocket(websocket)
 
     return app
 
@@ -255,6 +252,13 @@ async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:
         if not chunk:
             return
         await websocket.send_bytes(chunk)
+
+
+async def _close_websocket(websocket: WebSocket) -> None:
+    try:
+        await websocket.close()
+    except (RuntimeError, WebSocketDisconnect):
+        pass
 
 
 async def _relay_terminal_input(websocket: WebSocket, runtime: DockerRuntime, session: Any) -> None:
