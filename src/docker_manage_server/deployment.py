@@ -1,14 +1,31 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 from threading import Lock
 from typing import Any, BinaryIO
 
-from .artifacts import extract_and_review, overlay_directory, prepare_server_directories
-from .docker_runtime import DockerRuntime
-from .models import DeploymentTask, TaskStatus
+from .artifacts import (
+    extract_and_review,
+    overlay_directory,
+    prepare_server_directories,
+    write_checksums,
+)
+from .deployment_config import (
+    ConfigurationValidationError,
+    can_edit_task,
+    normalize_directory_rules,
+    validate_directory_targets,
+)
+from .docker_runtime import DockerRuntime, DockerRuntimeError
+from .models import DeploymentTask, DirectoryRule, TaskStatus
 from .storage import TaskStore
+
+
+ENV_MAX_BYTES = 1024 * 1024
+COMPOSE_MAX_BYTES = 2 * 1024 * 1024
 
 
 class DeploymentStateError(RuntimeError):
@@ -19,12 +36,21 @@ class DeploymentCommandError(RuntimeError):
     pass
 
 
+class DeploymentConfigurationError(RuntimeError):
+    pass
+
+
+class DeploymentConfigurationTooLargeError(DeploymentConfigurationError):
+    pass
+
+
 class DeploymentService:
     def __init__(self, store: TaskStore, runtime: DockerRuntime):
         self.store = store
         self.runtime = runtime
         self._lock_guard = Lock()
         self._app_locks: dict[str, Lock] = {}
+        self._task_locks: dict[str, Lock] = {}
 
     def upload(self, task_id: str, archive: BinaryIO, filename: str) -> DeploymentTask:
         task = self.store.create(task_id, filename)
@@ -89,6 +115,88 @@ class DeploymentService:
                 self.store.save(task)
                 return task
 
+    def edit_configuration(
+        self,
+        task_id: str,
+        env_text: str,
+        compose_text: str,
+        directory_rules: Sequence[DirectoryRule],
+    ) -> DeploymentTask:
+        with self._task_lock(task_id):
+            task = self.store.get(task_id)
+            if not can_edit_task(task):
+                raise DeploymentStateError(
+                    f"task {task_id} cannot be edited from status {task.status.value}"
+                )
+            if task.deployment_dir is None:
+                raise DeploymentStateError(f"task {task_id} has no deployment target")
+            try:
+                env_bytes = env_text.encode("utf-8")
+                compose_bytes = compose_text.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise DeploymentConfigurationError(
+                    "configuration text must be valid UTF-8"
+                ) from exc
+            if len(env_bytes) > ENV_MAX_BYTES:
+                raise DeploymentConfigurationTooLargeError(".env exceeds 1 MiB")
+            if len(compose_bytes) > COMPOSE_MAX_BYTES:
+                raise DeploymentConfigurationTooLargeError("compose.yaml exceeds 2 MiB")
+            try:
+                rules = normalize_directory_rules(directory_rules)
+                validate_directory_targets(task.deployment_dir, rules)
+                validate_directory_targets(task.extracted_dir, rules)
+            except ConfigurationValidationError as exc:
+                raise DeploymentConfigurationError(str(exc)) from exc
+
+            env_path = task.extracted_dir / ".env"
+            compose_path = task.extracted_dir / "compose.yaml"
+            checksum_path = task.extracted_dir / "checksums.sha256"
+            candidate_env = task.extracted_dir / ".env.candidate"
+            candidate_compose = task.extracted_dir / ".compose.candidate.yaml"
+            checksum_partial = task.extracted_dir / ".checksums.sha256.partial"
+            snapshots = {
+                env_path: env_path.read_bytes(),
+                compose_path: compose_path.read_bytes(),
+                checksum_path: checksum_path.read_bytes(),
+            }
+            try:
+                candidate_env.write_bytes(env_bytes)
+                candidate_compose.write_bytes(compose_bytes)
+                try:
+                    result = self.runtime.compose_config(
+                        task.extracted_dir,
+                        candidate_compose,
+                        candidate_env,
+                    )
+                except DockerRuntimeError as exc:
+                    raise DeploymentConfigurationError(
+                        f"compose validation failed: {exc}"
+                    ) from exc
+                if result.returncode != 0:
+                    detail = _as_text(getattr(result, "stderr", b""))
+                    raise DeploymentConfigurationError(
+                        f"invalid compose configuration: {detail or result.returncode}"
+                    )
+                candidate_env.replace(env_path)
+                candidate_compose.replace(compose_path)
+                write_checksums(task.extracted_dir)
+                task.directory_rules = rules
+                task.edited_at = datetime.now(timezone.utc)
+                task.status = TaskStatus.PENDING_REVIEW
+                task.error = None
+                task.failure_phase = None
+                return self.store.save(task)
+            except Exception:
+                for path, content in snapshots.items():
+                    partial = path.with_name(f".{path.name}.restore")
+                    partial.write_bytes(content)
+                    partial.replace(path)
+                raise
+            finally:
+                for path in (candidate_env, candidate_compose, checksum_partial):
+                    if path.exists():
+                        path.unlink()
+
     def discard(self, task_id: str) -> DeploymentTask:
         task = self.store.get(task_id)
         if task.status in {TaskStatus.EXTRACTING, TaskStatus.DEPLOYING, TaskStatus.DEPLOYED}:
@@ -102,6 +210,10 @@ class DeploymentService:
     def _app_lock(self, app_name: str) -> Lock:
         with self._lock_guard:
             return self._app_locks.setdefault(app_name, Lock())
+
+    def _task_lock(self, task_id: str) -> Lock:
+        with self._lock_guard:
+            return self._task_locks.setdefault(task_id, Lock())
 
     @staticmethod
     def _require_success(name: str, result: Any) -> None:
