@@ -11,21 +11,38 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from .artifacts import list_files
 from .config import Settings, get_settings
-from .deployment import DeploymentService, DeploymentStateError
+from .deployment import (
+    DeploymentConfigurationError,
+    DeploymentConfigurationTooLargeError,
+    DeploymentService,
+    DeploymentStateError,
+)
+from .deployment_config import (
+    can_edit_task,
+    can_retry_task,
+    effective_directory_rules,
+)
 from .docker_runtime import (
     ContainerNotFoundError,
     ContainerNotRunningError,
     DockerRuntime,
     DockerRuntimeError,
 )
-from .models import DeploymentTask, TaskStatus
+from .models import DeploymentTask, DirectoryRule
 from .security import CSP, UNSAFE_METHODS, origin_matches_host
 from .storage import TaskStore
 from .web import PACKAGE_ROOT, create_web_router
+
+
+class DeploymentConfigurationPayload(BaseModel):
+    env: str
+    compose: str
+    directories: tuple[DirectoryRule, ...] = ()
 
 
 def create_app(
@@ -128,15 +145,44 @@ def create_app(
             "files": [item.model_dump(mode="json") for item in list_files(task.extracted_dir)],
             "env": env_text,
             "compose": compose_text,
+            "directories": _directory_payload(task),
+            "editable": can_edit_task(task),
+            "retryable": can_retry_task(task),
+            "edited_at": task.edited_at.isoformat() if task.edited_at else None,
         }
+
+    @app.put("/api/deployment-tasks/{task_id}/configuration")
+    def update_deployment_configuration(
+        task_id: str,
+        payload: DeploymentConfigurationPayload,
+    ) -> dict[str, Any]:
+        try:
+            task = deployment.edit_configuration(
+                task_id,
+                payload.env,
+                payload.compose,
+                payload.directories,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="deployment task not found") from exc
+        except DeploymentConfigurationTooLargeError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except DeploymentStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DeploymentConfigurationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _task_payload(task)
 
     @app.post("/api/deployment-tasks/{task_id}/deploy", status_code=202)
     def deploy_task(task_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
-        task = _get_task(store, task_id)
-        if task.status is not TaskStatus.PENDING_REVIEW:
-            raise HTTPException(status_code=409, detail="task is not pending review")
+        try:
+            task = deployment.begin_deploy(task_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="deployment task not found") from exc
+        except DeploymentStateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         background_tasks.add_task(deployment.deploy, task_id)
-        return _task_payload(task.model_copy(update={"status": TaskStatus.DEPLOYING}))
+        return _task_payload(task)
 
     @app.delete("/api/deployment-tasks/{task_id}")
     def discard_task(task_id: str) -> dict[str, Any]:
@@ -233,6 +279,25 @@ def _task_payload(task: DeploymentTask) -> dict[str, Any]:
         mode="json",
         exclude={"created_at", "updated_at"},
     )
+
+
+def _directory_payload(task: DeploymentTask) -> list[dict[str, Any]]:
+    root = task.deployment_dir
+    result = []
+    for rule in effective_directory_rules(task):
+        target = root / rule.path if root is not None else None
+        result.append(
+            {
+                "path": rule.path,
+                "mode": rule.mode,
+                "exists": bool(
+                    target
+                    and target.is_dir()
+                    and not target.is_symlink()
+                ),
+            }
+        )
+    return result
 
 
 async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:

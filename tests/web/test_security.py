@@ -32,6 +32,13 @@ def test_cross_origin_form_is_rejected_but_missing_origin_is_allowed(web_context
     )
     assert same_origin.status_code == 422
 
+    rejected_update = client.put(
+        "/api/deployment-tasks/missing/configuration",
+        headers={"Origin": "https://evil.example"},
+        json={"env": "A=1\n", "compose": "services: {}\n", "directories": []},
+    )
+    assert rejected_update.status_code == 403
+
 
 def test_cross_origin_terminal_is_rejected(web_context):
     client, _store, _runtime = web_context
