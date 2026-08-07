@@ -66,7 +66,12 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
 .file-list { max-height: 320px; overflow: auto; margin: 0; padding-left: 22px; }
 .stack { display: grid; gap: 12px; }
 .error-panel { max-width: 760px; }
-.terminal-viewport { min-height: 360px; padding: 8px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.container-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.tool-page-panel { display: flex; min-height: 0; flex-direction: column; }
+.log-output-viewport, .terminal-viewport { width: 100%; height: clamp(320px, 58vh, 720px); min-height: 0; }
+.log-output-viewport { overflow: auto; margin-bottom: 0; }
+.terminal-viewport { overflow: hidden; padding: 8px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.terminal-viewport .xterm { height: 100%; }
 
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -79,6 +84,8 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
   .content-grid { grid-template-columns: 1fr; }
   .table-scroll { overflow-x: auto; }
   .page-actions, .panel-heading, .toolbar { align-items: flex-start; flex-direction: column; }
+  .container-heading-actions { width: 100%; justify-content: flex-start; }
+  .log-output-viewport, .terminal-viewport { height: clamp(280px, 52vh, 520px); }
   .definition-grid { grid-template-columns: 1fr; gap: 4px; }
   .definition-grid dd { margin-bottom: 10px; }
 }

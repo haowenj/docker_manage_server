@@ -39,3 +39,17 @@ def test_template_and_static_resources_are_package_data():
     assert package.joinpath("templates/base.html").is_file()
     assert package.joinpath("static/css/app.css").is_file()
     assert package.joinpath("static/js/app.js").is_file()
+
+
+def test_tool_viewports_have_bounded_height_and_internal_scrolling():
+    css = (
+        files("docker_manage_server")
+        .joinpath("static/css/app.css")
+        .read_text(encoding="utf-8")
+    )
+
+    assert ".log-output-viewport, .terminal-viewport" in css
+    assert "height: clamp(320px, 58vh, 720px)" in css
+    assert ".log-output-viewport { overflow: auto;" in css
+    assert ".terminal-viewport { overflow: hidden;" in css
+    assert ".terminal-viewport { min-height: 360px;" not in css
