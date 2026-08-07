@@ -7,7 +7,7 @@ def test_responses_include_security_headers(web_context):
     response = client.get("/")
     assert "default-src 'self'" in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["referrer-policy"] == "same-origin"
 
 
 def test_cross_origin_form_is_rejected_but_missing_origin_is_allowed(web_context):

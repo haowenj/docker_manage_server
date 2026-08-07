@@ -67,7 +67,7 @@ def create_app(
 
         response.headers["Content-Security-Policy"] = CSP
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "same-origin"
         return response
 
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
