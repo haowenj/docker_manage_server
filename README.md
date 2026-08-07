@@ -28,6 +28,13 @@ curl --fail "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 如果不显式设置 `DOCKER_MANAGE_DATA_DIR`，Compose 默认使用当前项目目录下的 `data/` 绝对路径。
 `DOCKER_MANAGE_SERVER_PORT` 只控制宿主机发布端口，容器内端口始终为 `8000`；未设置时宿主机端口也默认为 `8000`。
 
+启动后访问：
+
+- 管理台：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/`
+- API 文档：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/docs`
+
+管理台首版不含鉴权，可上传并部署归档、读取 `.env`、查看日志并打开容器终端，只能暴露在受信任内网。
+
 `compose.yaml` 已包含以下两个挂载：
 
 ```yaml
