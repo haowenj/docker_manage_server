@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">{% endblock %}
 {% block content %}
 <section class="panel">
   <div class="panel-heading">
@@ -36,3 +37,4 @@
   <div class="terminal-viewport" data-terminal-viewport></div>
 </section>
 {% endblock %}
+{% block scripts %}<script type="module" src="/static/js/terminal.js"></script>{% endblock %}

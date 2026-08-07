@@ -35,6 +35,8 @@ def test_container_detail_exposes_logs_and_terminal_targets(web_context):
     assert response.status_code == 200
     assert 'data-log-url="/api/containers/abc123/logs"' in response.text
     assert 'data-terminal-url="/api/containers/abc123/terminal"' in response.text
+    assert 'type="module"' in response.text
+    assert "/static/js/terminal.js" in response.text
 
 
 def test_container_pages_render_html_errors(web_context):
