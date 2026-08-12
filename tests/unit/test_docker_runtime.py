@@ -3,14 +3,102 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from docker.errors import DockerException
+from docker.errors import DockerException, ImageNotFound
 
 from docker_manage_server.docker_runtime import (
     ComposeListError,
     ComposeProjectRecord,
     DockerRuntime,
     DockerRuntimeError,
+    ImageNotFoundError,
 )
+
+
+def image_fixture():
+    attrs = {
+        "Id": "sha256:immutable-image-id",
+        "RepoTags": ["demo/app:2", "demo/app:1"],
+        "RepoDigests": ["demo/app@sha256:digest"],
+        "Created": "2026-08-12T01:02:03Z",
+        "Size": 1234,
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Config": {"Entrypoint": ["/entrypoint"], "Cmd": ["serve"]},
+    }
+    return SimpleNamespace(
+        id=attrs["Id"],
+        short_id="sha256:immutab",
+        tags=list(attrs["RepoTags"]),
+        attrs=attrs,
+    )
+
+
+def test_list_and_get_images_serialize_inspect_fields():
+    image = image_fixture()
+    client = SimpleNamespace(
+        images=SimpleNamespace(
+            list=lambda all=True: [image],
+            get=lambda _reference: image,
+        )
+    )
+    runtime = DockerRuntime(client=client)
+
+    listed = runtime.list_images()
+    fetched = runtime.get_serialized_image("short-id")
+
+    assert listed == [fetched]
+    assert fetched["id"] == "sha256:immutable-image-id"
+    assert fetched["tags"] == ["demo/app:2", "demo/app:1"]
+    assert fetched["entrypoint"] == ["/entrypoint"]
+    assert fetched["command"] == ["serve"]
+    assert fetched["raw_attrs"] is image.attrs
+
+
+def test_image_lookup_maps_not_found_and_list_maps_runtime_failure():
+    missing = DockerRuntime(
+        client=SimpleNamespace(
+            images=SimpleNamespace(
+                get=lambda _reference: (_ for _ in ()).throw(
+                    ImageNotFound("missing")
+                )
+            )
+        )
+    )
+    with pytest.raises(ImageNotFoundError):
+        missing.get_serialized_image("missing")
+
+    broken = DockerRuntime(
+        client=SimpleNamespace(
+            images=SimpleNamespace(
+                list=lambda **_kwargs: (_ for _ in ()).throw(
+                    DockerException("offline")
+                )
+            )
+        )
+    )
+    with pytest.raises(DockerRuntimeError, match="offline"):
+        broken.list_images()
+
+
+def test_remove_image_is_non_force_and_maps_errors():
+    calls = []
+    client = SimpleNamespace(
+        images=SimpleNamespace(
+            remove=lambda reference, **kwargs: calls.append((reference, kwargs))
+        )
+    )
+
+    DockerRuntime(client=client).remove_image("demo/app:1")
+
+    assert calls == [
+        ("demo/app:1", {"force": False, "noprune": False})
+    ]
+
+    client.images.remove = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        DockerException("remove failed")
+    )
+    with pytest.raises(DockerRuntimeError, match="remove failed"):
+        DockerRuntime(client=client).remove_image("demo/app:1")
 
 
 def test_list_containers_returns_ps_fields_and_raw_attrs():

@@ -8,7 +8,12 @@ import tempfile
 from typing import Any, Callable
 
 import docker
-from docker.errors import APIError, DockerException, NotFound
+from docker.errors import (
+    APIError,
+    DockerException,
+    ImageNotFound as SDKImageNotFound,
+    NotFound,
+)
 
 
 class DockerRuntimeError(RuntimeError):
@@ -24,6 +29,10 @@ class ContainerNotFoundError(DockerRuntimeError):
 
 
 class ContainerNotRunningError(DockerRuntimeError):
+    pass
+
+
+class ImageNotFoundError(DockerRuntimeError):
     pass
 
 
@@ -70,6 +79,30 @@ class DockerRuntime:
         except DockerException as exc:
             raise DockerRuntimeError(str(exc)) from exc
         return [self._serialize_container(container) for container in containers]
+
+    def list_images(self) -> list[dict[str, Any]]:
+        try:
+            images = self.client.images.list(all=True)
+        except DockerException as exc:
+            raise DockerRuntimeError(str(exc)) from exc
+        return [self._serialize_image(image) for image in images]
+
+    def get_serialized_image(self, image_id: str) -> dict[str, Any]:
+        try:
+            image = self.client.images.get(image_id)
+        except SDKImageNotFound as exc:
+            raise ImageNotFoundError(image_id) from exc
+        except DockerException as exc:
+            raise DockerRuntimeError(str(exc)) from exc
+        return self._serialize_image(image)
+
+    def remove_image(self, reference: str) -> None:
+        try:
+            self.client.images.remove(reference, force=False, noprune=False)
+        except SDKImageNotFound as exc:
+            raise ImageNotFoundError(reference) from exc
+        except DockerException as exc:
+            raise DockerRuntimeError(str(exc)) from exc
 
     def list_compose_projects(self) -> tuple[ComposeProjectRecord, ...]:
         try:
@@ -276,6 +309,33 @@ class DockerRuntime:
             "state": state,
             "mounts": attrs.get("Mounts", []),
             "networks": attrs.get("NetworkSettings", {}).get("Networks", {}),
+            "raw_attrs": attrs,
+        }
+
+    @staticmethod
+    def _serialize_image(image: Any) -> dict[str, Any]:
+        attrs = image.attrs
+        config = attrs.get("Config") or {}
+        image_id = str(
+            getattr(image, "id", None) or attrs.get("Id") or ""
+        )
+        return {
+            "id": image_id,
+            "short_id": (
+                getattr(image, "short_id", None) or image_id[:19]
+            ),
+            "tags": list(
+                attrs.get("RepoTags")
+                or getattr(image, "tags", ())
+                or ()
+            ),
+            "digests": list(attrs.get("RepoDigests") or ()),
+            "created": attrs.get("Created"),
+            "size": int(attrs.get("Size") or 0),
+            "architecture": attrs.get("Architecture"),
+            "os": attrs.get("Os"),
+            "entrypoint": config.get("Entrypoint"),
+            "command": config.get("Cmd"),
             "raw_attrs": attrs,
         }
 
