@@ -63,3 +63,37 @@ def test_unknown_compose_project_returns_404(web_context):
     response = client.get("/compose-projects/missing")
     assert response.status_code == 404
     assert "找不到 Compose 项目" in response.text
+
+
+def test_compose_log_and_terminal_pages_keep_project_context(web_context):
+    client, _store, runtime = web_context
+    runtime.containers = [compose_container_fixture()]
+
+    logs = client.get("/compose-projects/mall/containers/mall-web/logs")
+    terminal = client.get("/compose-projects/mall/containers/mall-web/terminal")
+
+    assert logs.status_code == 200
+    assert (
+        'data-log-url="/api/compose-projects/mall/containers/mall-web/logs"'
+        in logs.text
+    )
+    assert 'href="/compose-projects/mall"' in logs.text
+    assert "mall / web / mall-web" in logs.text
+    assert terminal.status_code == 200
+    assert (
+        'data-terminal-url="/api/compose-projects/mall/containers/mall-web/terminal"'
+        in terminal.text
+    )
+    assert 'href="/compose-projects/mall"' in terminal.text
+
+
+def test_compose_tool_pages_hide_cross_project_container(web_context):
+    client, _store, runtime = web_context
+    runtime.containers = [compose_container_fixture("secret-project", "hidden-web")]
+    for suffix in ("logs", "terminal"):
+        response = client.get(
+            f"/compose-projects/mall/containers/hidden-web/{suffix}"
+        )
+        assert response.status_code == 404
+        assert "找不到容器" in response.text
+        assert "secret-project" not in response.text

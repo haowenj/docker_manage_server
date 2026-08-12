@@ -83,7 +83,7 @@ def test_container_terminal_page_loads_local_xterm(web_context):
 
 def test_container_pages_render_html_errors(web_context):
     client, _store, runtime = web_context
-    runtime.get_container = lambda _value: (_ for _ in ()).throw(
+    runtime.get_serialized_container = lambda _value: (_ for _ in ()).throw(
         ContainerNotFoundError("x")
     )
 
@@ -103,7 +103,7 @@ def test_container_pages_render_html_errors(web_context):
     assert unavailable.status_code == 503
     assert "offline" in unavailable.text
 
-    runtime.get_container = lambda _value: (_ for _ in ()).throw(
+    runtime.get_serialized_container = lambda _value: (_ for _ in ()).throw(
         DockerRuntimeError("offline")
     )
     for path in (
@@ -114,3 +114,30 @@ def test_container_pages_render_html_errors(web_context):
         unavailable = client.get(path)
         assert unavailable.status_code == 503
         assert "offline" in unavailable.text
+
+
+def test_compose_container_is_hidden_from_standalone_pages(web_context):
+    client, _store, runtime = web_context
+    runtime.containers = [
+        {
+            "id": "mall-web",
+            "short_id": "mall-web",
+            "name": "mall-web",
+            "image": "mall/web:1",
+            "created": "2026-08-01T00:00:00Z",
+            "status": "running",
+            "running": True,
+            "ports": {},
+            "labels": {"com.docker.compose.project": "mall"},
+            "mounts": [],
+            "networks": {},
+        }
+    ]
+
+    for path in (
+        "/containers/mall-web",
+        "/containers/mall-web/logs",
+        "/containers/mall-web/terminal",
+    ):
+        response = client.get(path)
+        assert response.status_code == 404

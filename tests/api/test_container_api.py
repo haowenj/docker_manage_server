@@ -5,7 +5,11 @@ from starlette.testclient import TestClient
 
 from docker_manage_server.api import create_app
 from docker_manage_server.config import Settings
-from docker_manage_server.docker_runtime import ContainerNotRunningError
+from docker_manage_server.docker_runtime import (
+    ComposeProjectRecord,
+    ContainerNotFoundError,
+    ContainerNotRunningError,
+)
 from docker_manage_server.storage import TaskStore
 
 
@@ -30,6 +34,23 @@ class ContainerApiRuntime:
 
     def get_container(self, container_id):
         return object()
+
+    def get_serialized_container(self, container_id):
+        if container_id == "mall-web":
+            return {
+                "id": "mall-web",
+                "labels": {
+                    "com.docker.compose.project": "mall",
+                    "com.docker.compose.service": "web",
+                },
+                "running": True,
+            }
+        if container_id == "stopped":
+            return {"id": "stopped", "labels": {}, "running": False}
+        raise ContainerNotFoundError(container_id)
+
+    def list_compose_projects(self):
+        return (ComposeProjectRecord("mall", "running(1)", ()),)
 
     def create_terminal(self, container_id, command):
         raise ContainerNotRunningError(container_id)
@@ -65,3 +86,19 @@ def test_terminal_rejects_stopped_container(client):
     with client.websocket_connect("/api/containers/stopped/terminal") as websocket:
         message = websocket.receive_json()
     assert message["error"] == "container_not_running"
+
+
+def test_compose_logs_validate_project_ownership(client):
+    allowed = client.get("/api/compose-projects/mall/containers/mall-web/logs")
+    hidden = client.get("/api/compose-projects/other/containers/mall-web/logs")
+    assert allowed.status_code == 200
+    assert allowed.text == "hello\n"
+    assert hidden.status_code == 404
+
+
+def test_compose_terminal_hides_cross_project_container(client):
+    with client.websocket_connect(
+        "/api/compose-projects/other/containers/mall-web/terminal"
+    ) as websocket:
+        message = websocket.receive_json()
+    assert message["error"] == "container_not_found"

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel tool-page-panel log-panel" data-log-viewer data-log-url="/api/compose-projects/{{ project_name }}/containers/{{ container.item.id }}/logs">
+  <div class="panel-heading"><div><h2>{{ project_name }} / {{ container.compose_service }} / {{ container.name }}</h2><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></div><a class="button button-secondary" href="/compose-projects/{{ project_name }}">返回 Compose 项目</a></div>
+  <div class="toolbar"><label>行数 <select data-log-tail><option>100</option><option>500</option><option value="all">全部</option></select></label><label><input type="checkbox" data-log-timestamps> 显示时间戳</label><button class="button button-secondary" type="button" data-log-refresh>刷新日志</button></div>
+  <pre class="log-output-viewport" data-log-output>点击“刷新日志”读取日志。</pre>
+</section>
+{% endblock %}

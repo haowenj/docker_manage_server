@@ -49,3 +49,14 @@ def test_cross_origin_terminal_is_rejected(web_context):
         ):
             pass
     assert captured.value.code == 1008
+
+
+def test_cross_origin_compose_terminal_is_rejected(web_context):
+    client, _store, _runtime = web_context
+    with pytest.raises(WebSocketDisconnect) as captured:
+        with client.websocket_connect(
+            "/api/compose-projects/mall/containers/mall-web/terminal",
+            headers={"Origin": "https://evil.example"},
+        ):
+            pass
+    assert captured.value.code == 1008

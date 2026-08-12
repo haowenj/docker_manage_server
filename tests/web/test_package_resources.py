@@ -31,5 +31,7 @@ def test_runtime_templates_are_packaged():
     for path in (
         "templates/runtime/list.html",
         "templates/compose_projects/detail.html",
+        "templates/compose_projects/logs.html",
+        "templates/compose_projects/terminal.html",
     ):
         assert package.joinpath(path).is_file()

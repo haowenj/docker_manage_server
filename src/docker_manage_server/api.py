@@ -226,6 +226,22 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return PlainTextResponse(output.decode("utf-8", errors="replace"))
 
+    @app.get("/api/compose-projects/{project_name}/containers/{container_id}/logs")
+    def get_compose_logs(
+        project_name: str,
+        container_id: str,
+        tail: str = "all",
+        timestamps: bool = False,
+    ) -> PlainTextResponse:
+        try:
+            inventory.require_project_container(project_name, container_id)
+            output = runtime.logs(container_id, tail=tail, timestamps=timestamps)
+        except ContainerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="container not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return PlainTextResponse(output.decode("utf-8", errors="replace"))
+
     @app.websocket("/api/containers/{container_id}/terminal")
     async def terminal(websocket: WebSocket, container_id: str, command: str = "/bin/sh"):
         if not origin_matches_host(
@@ -236,36 +252,43 @@ def create_app(
             return
         await websocket.accept()
         try:
-            session = runtime.create_terminal(container_id, shlex.split(command))
+            inventory.require_standalone_container(container_id)
         except ContainerNotFoundError:
             await websocket.send_json({"error": "container_not_found"})
-            await websocket.close(code=1008)
-            return
-        except ContainerNotRunningError:
-            await websocket.send_json({"error": "container_not_running"})
             await websocket.close(code=1008)
             return
         except DockerRuntimeError as exc:
             await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
             await websocket.close(code=1011)
             return
+        await _serve_terminal(websocket, runtime, container_id, command)
 
-        reader = asyncio.create_task(_relay_terminal_output(websocket, session.socket))
-        writer = asyncio.create_task(_relay_terminal_input(websocket, runtime, session))
+    @app.websocket(
+        "/api/compose-projects/{project_name}/containers/{container_id}/terminal"
+    )
+    async def compose_terminal(
+        websocket: WebSocket,
+        project_name: str,
+        container_id: str,
+        command: str = "/bin/sh",
+    ):
+        if not origin_matches_host(
+            websocket.headers.get("origin"), websocket.headers.get("host")
+        ):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
         try:
-            await asyncio.wait(
-                {reader, writer},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-        except WebSocketDisconnect:
-            pass
-        finally:
-            runtime.close_terminal(session)
-            for task in (reader, writer):
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(reader, writer, return_exceptions=True)
-            await _close_websocket(websocket)
+            inventory.require_project_container(project_name, container_id)
+        except ContainerNotFoundError:
+            await websocket.send_json({"error": "container_not_found"})
+            await websocket.close(code=1008)
+            return
+        except DockerRuntimeError as exc:
+            await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
+            await websocket.close(code=1011)
+            return
+        await _serve_terminal(websocket, runtime, container_id, command)
 
     return app
 
@@ -301,6 +324,45 @@ def _directory_payload(task: DeploymentTask) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+async def _serve_terminal(
+    websocket: WebSocket,
+    runtime: DockerRuntime,
+    container_id: str,
+    command: str,
+) -> None:
+    try:
+        session = runtime.create_terminal(container_id, shlex.split(command))
+    except ContainerNotFoundError:
+        await websocket.send_json({"error": "container_not_found"})
+        await websocket.close(code=1008)
+        return
+    except ContainerNotRunningError:
+        await websocket.send_json({"error": "container_not_running"})
+        await websocket.close(code=1008)
+        return
+    except DockerRuntimeError as exc:
+        await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
+        await websocket.close(code=1011)
+        return
+
+    reader = asyncio.create_task(_relay_terminal_output(websocket, session.socket))
+    writer = asyncio.create_task(_relay_terminal_input(websocket, runtime, session))
+    try:
+        await asyncio.wait(
+            {reader, writer},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        runtime.close_terminal(session)
+        for task in (reader, writer):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(reader, writer, return_exceptions=True)
+        await _close_websocket(websocket)
 
 
 async def _relay_terminal_output(websocket: WebSocket, socket: Any) -> None:

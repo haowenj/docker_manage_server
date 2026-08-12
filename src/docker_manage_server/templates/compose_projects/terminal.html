@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block head %}<link rel="stylesheet" href="/static/vendor/xterm/xterm.css">{% endblock %}
+{% block content %}
+<section class="panel tool-page-panel terminal-panel" data-terminal-url="/api/compose-projects/{{ project_name }}/containers/{{ container.item.id }}/terminal" data-terminal-command="/bin/sh">
+  <div class="panel-heading"><div><h2>{{ project_name }} / {{ container.compose_service }} / {{ container.name }}</h2><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></div><a class="button button-secondary" href="/compose-projects/{{ project_name }}">返回 Compose 项目</a></div>
+  {% if not container.running %}<div class="alert alert-warning">容器未运行，无法连接终端。</div>{% endif %}
+  <div class="toolbar"><span data-terminal-status>尚未连接</span><button class="button button-primary" type="button" data-terminal-connect {{ 'disabled' if not container.running else '' }}>连接终端</button></div>
+  <div class="terminal-viewport" data-terminal-viewport></div>
+</section>
+{% endblock %}
+{% block scripts %}<script type="module" src="/static/js/terminal.js"></script>{% endblock %}

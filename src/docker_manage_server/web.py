@@ -125,12 +125,12 @@ def _configuration_context(
 
 def _container_page(
     request: Request,
-    runtime: DockerRuntime,
+    inventory: RuntimeInventoryService,
     container_id: str,
     template_name: str,
 ) -> HTMLResponse:
     try:
-        item = DockerRuntime._serialize_container(runtime.get_container(container_id))
+        item = inventory.require_standalone_container(container_id)
     except ContainerNotFoundError:
         return _web_error(request, 404, "找不到容器", container_id)
     except DockerRuntimeError as exc:
@@ -141,7 +141,33 @@ def _container_page(
         name=template_name,
         context={
             "page_title": container["name"] or container["item"].get("short_id"),
-            "active_nav": "containers",
+            "active_nav": "runtime",
+            "container": container,
+        },
+    )
+
+
+def _compose_container_page(
+    request: Request,
+    inventory: RuntimeInventoryService,
+    project_name: str,
+    container_id: str,
+    template_name: str,
+) -> HTMLResponse:
+    try:
+        item = inventory.require_project_container(project_name, container_id)
+    except ContainerNotFoundError:
+        return _web_error(request, 404, "找不到容器", container_id)
+    except DockerRuntimeError as exc:
+        return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+    container = container_view(item)
+    return templates.TemplateResponse(
+        request=request,
+        name=template_name,
+        context={
+            "page_title": container["name"],
+            "active_nav": "runtime",
+            "project_name": project_name,
             "container": container,
         },
     )
@@ -353,19 +379,49 @@ def create_web_router(
     @router.get("/containers/{container_id}", response_class=HTMLResponse)
     def container_detail(request: Request, container_id: str):
         return _container_page(
-            request, runtime, container_id, "containers/detail.html"
+            request, inventory, container_id, "containers/detail.html"
         )
 
     @router.get("/containers/{container_id}/logs", response_class=HTMLResponse)
     def container_logs(request: Request, container_id: str):
         return _container_page(
-            request, runtime, container_id, "containers/logs.html"
+            request, inventory, container_id, "containers/logs.html"
         )
 
     @router.get("/containers/{container_id}/terminal", response_class=HTMLResponse)
     def container_terminal(request: Request, container_id: str):
         return _container_page(
-            request, runtime, container_id, "containers/terminal.html"
+            request, inventory, container_id, "containers/terminal.html"
+        )
+
+    @router.get(
+        "/compose-projects/{project_name}/containers/{container_id}/logs",
+        response_class=HTMLResponse,
+    )
+    def compose_container_logs(
+        request: Request, project_name: str, container_id: str
+    ):
+        return _compose_container_page(
+            request,
+            inventory,
+            project_name,
+            container_id,
+            "compose_projects/logs.html",
+        )
+
+    @router.get(
+        "/compose-projects/{project_name}/containers/{container_id}/terminal",
+        response_class=HTMLResponse,
+    )
+    def compose_container_terminal(
+        request: Request, project_name: str, container_id: str
+    ):
+        return _compose_container_page(
+            request,
+            inventory,
+            project_name,
+            container_id,
+            "compose_projects/terminal.html",
         )
 
     return router
