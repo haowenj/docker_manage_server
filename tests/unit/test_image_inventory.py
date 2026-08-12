@@ -7,10 +7,17 @@ from docker_manage_server.docker_runtime import (
     ImageNotFoundError,
 )
 from docker_manage_server.image_inventory import (
+    ImageBatchPreviewResult,
     ImageInUseError,
     ImageInventoryService,
     InvalidImagePageError,
 )
+
+
+USED_ID = "sha256:" + "1" * 64
+FREE_ID = "sha256:" + "2" * 64
+DANGLING_ID = "sha256:" + "3" * 64
+MISSING_ID = "sha256:" + "4" * 64
 
 
 def image(image_id, tags=(), created="2026-08-12T00:00:00Z", size=100):
@@ -90,6 +97,97 @@ class FakeRuntime:
                 self.images.remove(item)
                 return
         raise ImageNotFoundError(reference)
+
+
+def test_batch_preview_groups_free_dangling_used_and_missing_images():
+    runtime = FakeRuntime(
+        [
+            image(USED_ID, ("demo/used:1",)),
+            image(FREE_ID, ("demo/free:1",)),
+            image(DANGLING_ID),
+        ],
+        [
+            container("running", USED_ID, name="z-running", running=True),
+            container("stopped", USED_ID, name="a-stopped", running=False),
+        ],
+    )
+
+    result = ImageInventoryService(runtime).preview_batch_removal(
+        (USED_ID, FREE_ID, DANGLING_ID, MISSING_ID)
+    )
+
+    assert isinstance(result, ImageBatchPreviewResult)
+    assert [item.id for item in result.deletable] == [FREE_ID, DANGLING_ID]
+    assert [item.id for item in result.in_use] == [USED_ID]
+    assert [item.name for item in result.in_use[0].containers] == [
+        "a-stopped",
+        "z-running",
+    ]
+    assert [item.running for item in result.in_use[0].containers] == [False, True]
+    assert result.missing == (MISSING_ID,)
+    assert result.deletable[1].tags == ()
+
+
+def test_batch_remove_deletes_whole_images_and_continues_after_failure():
+    failing_id = "sha256:" + "5" * 64
+    runtime = FakeRuntime(
+        [
+            image(FREE_ID, ("demo/free:1", "demo/free:2")),
+            image(DANGLING_ID),
+            image(failing_id, ("demo/fail:1",)),
+            image(USED_ID, ("demo/used:1",)),
+        ],
+        [container("stopped", USED_ID, name="consumer", running=False)],
+    )
+    runtime.fail_reference = failing_id
+
+    result = ImageInventoryService(runtime).remove_unused_images(
+        (FREE_ID, failing_id, DANGLING_ID, USED_ID, MISSING_ID),
+        query="demo",
+        page=2,
+    )
+
+    assert runtime.remove_calls == [FREE_ID, failing_id, DANGLING_ID]
+    assert [item.id for item in result.deleted] == [FREE_ID, DANGLING_ID]
+    assert [item.id for item in result.in_use] == [USED_ID]
+    assert result.in_use[0].containers[0].name == "consumer"
+    assert result.missing == (MISSING_ID,)
+    assert [item.id for item in result.failed] == [failing_id]
+    assert result.failed[0].error == "remove failed"
+    assert result.suggested_page == 1
+
+
+def test_batch_remove_rechecks_containers_after_preview():
+    runtime = FakeRuntime([image(FREE_ID, ("demo/free:1",))])
+    service = ImageInventoryService(runtime)
+    assert [item.id for item in service.preview_batch_removal((FREE_ID,)).deletable] == [
+        FREE_ID
+    ]
+    runtime.containers.append(
+        container("new-container", FREE_ID, name="new-consumer", running=True)
+    )
+
+    result = service.remove_unused_images((FREE_ID,), query="", page=1)
+
+    assert runtime.remove_calls == []
+    assert [item.id for item in result.in_use] == [FREE_ID]
+    assert result.in_use[0].containers[0].name == "new-consumer"
+
+
+def test_batch_remove_requires_successful_initial_docker_snapshot():
+    runtime = FakeRuntime([image(FREE_ID, ("demo/free:1",))])
+
+    def fail_containers():
+        raise DockerRuntimeError("daemon offline")
+
+    runtime.list_containers = fail_containers
+
+    with pytest.raises(DockerRuntimeError, match="daemon offline"):
+        ImageInventoryService(runtime).remove_unused_images(
+            (FREE_ID,), query="", page=1
+        )
+
+    assert runtime.remove_calls == []
 
 
 def test_list_aggregates_tags_sorts_searches_and_pages():

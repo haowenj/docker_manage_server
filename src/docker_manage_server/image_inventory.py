@@ -56,6 +56,31 @@ class ImageContainerReference:
 
 
 @dataclass(frozen=True)
+class ImageBatchItem:
+    id: str
+    short_id: str
+    tags: tuple[str, ...]
+    containers: tuple[ImageContainerReference, ...] = ()
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ImageBatchPreviewResult:
+    deletable: tuple[ImageBatchItem, ...]
+    in_use: tuple[ImageBatchItem, ...]
+    missing: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ImageBatchDeleteResult:
+    deleted: tuple[ImageBatchItem, ...]
+    in_use: tuple[ImageBatchItem, ...]
+    missing: tuple[str, ...]
+    failed: tuple[ImageBatchItem, ...]
+    suggested_page: int
+
+
+@dataclass(frozen=True)
 class ImagePage:
     items: tuple[ImageSummary, ...]
     query: str
@@ -138,6 +163,87 @@ class ImageInventoryService:
             containers=self._references(summary.id),
         )
 
+    def preview_batch_removal(
+        self,
+        image_ids: tuple[str, ...],
+    ) -> ImageBatchPreviewResult:
+        summaries = {
+            item.id: item for item in _summaries(self.runtime.list_images())
+        }
+        containers = self.runtime.list_containers()
+        deletable = []
+        in_use = []
+        missing = []
+        for image_id in image_ids:
+            summary = summaries.get(image_id)
+            if summary is None:
+                missing.append(image_id)
+                continue
+            references = _references_from(containers, image_id)
+            item = _batch_item(summary, references)
+            (in_use if references else deletable).append(item)
+        return ImageBatchPreviewResult(
+            deletable=tuple(deletable),
+            in_use=tuple(in_use),
+            missing=tuple(missing),
+        )
+
+    def remove_unused_images(
+        self,
+        image_ids: tuple[str, ...],
+        query: str = "",
+        page: int = 1,
+    ) -> ImageBatchDeleteResult:
+        self.preview_batch_removal(image_ids)
+        deleted = []
+        in_use = []
+        missing = []
+        failed = []
+        for image_id in image_ids:
+            with self._lock_for(image_id):
+                try:
+                    summary = _summary(
+                        self.runtime.get_serialized_image(image_id)
+                    )
+                except ImageNotFoundError:
+                    missing.append(image_id)
+                    continue
+                except DockerRuntimeError as exc:
+                    failed.append(_unknown_batch_item(image_id, str(exc)))
+                    continue
+                try:
+                    references = _references_from(
+                        self.runtime.list_containers(), image_id
+                    )
+                except DockerRuntimeError as exc:
+                    failed.append(_batch_item(summary, error=str(exc)))
+                    continue
+                if references:
+                    in_use.append(_batch_item(summary, references))
+                    continue
+                try:
+                    self.runtime.remove_image(image_id)
+                except ImageNotFoundError:
+                    missing.append(image_id)
+                except DockerRuntimeError as exc:
+                    failed.append(_batch_item(summary, error=str(exc)))
+                else:
+                    deleted.append(_batch_item(summary))
+        return ImageBatchDeleteResult(
+            deleted=tuple(deleted),
+            in_use=tuple(in_use),
+            missing=tuple(missing),
+            failed=tuple(failed),
+            suggested_page=self._suggested_page(query, page),
+        )
+
+    def _suggested_page(self, query: str, requested_page: int) -> int:
+        try:
+            current = self.list(query=query, page=1)
+        except DockerRuntimeError:
+            return requested_page
+        return min(requested_page, max(current.total_pages, 1))
+
     def preview_tag_removal(self, image_id: str) -> ImageTagRemovalPreview:
         item = self.runtime.get_serialized_image(image_id)
         summary = _summary(item)
@@ -197,31 +303,64 @@ class ImageInventoryService:
         self,
         immutable_image_id: str,
     ) -> tuple[ImageContainerReference, ...]:
-        references = []
-        for item in self.runtime.list_containers():
-            if item.get("image_id") != immutable_image_id:
-                continue
-            labels = _labels(item)
-            references.append(
-                ImageContainerReference(
-                    id=str(item["id"]),
-                    name=str(item.get("name") or item["id"]),
-                    status=str(item.get("status") or "unknown"),
-                    running=bool(item.get("running")),
-                    compose_project=_optional_text(
-                        labels.get(COMPOSE_PROJECT_LABEL)
-                    ),
-                    compose_service=_optional_text(
-                        labels.get(COMPOSE_SERVICE_LABEL)
-                    ),
-                )
-            )
-        return tuple(
-            sorted(
-                references,
-                key=lambda item: (item.name.casefold(), item.id),
+        return _references_from(
+            self.runtime.list_containers(),
+            immutable_image_id,
+        )
+
+
+def _batch_item(
+    summary: ImageSummary,
+    containers: tuple[ImageContainerReference, ...] = (),
+    error: str | None = None,
+) -> ImageBatchItem:
+    return ImageBatchItem(
+        id=summary.id,
+        short_id=summary.short_id,
+        tags=summary.tags,
+        containers=containers,
+        error=error,
+    )
+
+
+def _unknown_batch_item(image_id: str, error: str) -> ImageBatchItem:
+    return ImageBatchItem(
+        id=image_id,
+        short_id=image_id.removeprefix("sha256:")[:12],
+        tags=(),
+        error=error,
+    )
+
+
+def _references_from(
+    containers: list[dict[str, Any]],
+    immutable_image_id: str,
+) -> tuple[ImageContainerReference, ...]:
+    references = []
+    for item in containers:
+        if item.get("image_id") != immutable_image_id:
+            continue
+        labels = _labels(item)
+        references.append(
+            ImageContainerReference(
+                id=str(item["id"]),
+                name=str(item.get("name") or item["id"]),
+                status=str(item.get("status") or "unknown"),
+                running=bool(item.get("running")),
+                compose_project=_optional_text(
+                    labels.get(COMPOSE_PROJECT_LABEL)
+                ),
+                compose_service=_optional_text(
+                    labels.get(COMPOSE_SERVICE_LABEL)
+                ),
             )
         )
+    return tuple(
+        sorted(
+            references,
+            key=lambda item: (item.name.casefold(), item.id),
+        )
+    )
 
 
 def _page_number(value: int | str) -> int:
