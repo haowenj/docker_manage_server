@@ -74,6 +74,41 @@ def test_image_navigation_list_search_and_pagination(web_context):
     assert ">demo/item:4</a>" in response.text
 
 
+def test_image_list_exposes_current_page_batch_delete_controls(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(index) for index in range(25)]
+
+    response = client.get("/images?q=demo&page=2")
+
+    assert response.status_code == 200
+    assert "data-image-batch" in response.text
+    assert 'data-preview-url="/api/images/batch-delete-preview"' in response.text
+    assert 'data-delete-url="/api/images/batch-delete"' in response.text
+    assert 'data-query="demo"' in response.text
+    assert 'data-page="2"' in response.text
+    assert "data-image-batch-enter" in response.text
+    assert "data-image-batch-cancel" in response.text
+    assert "data-image-batch-submit" in response.text
+    assert "data-image-select-all" in response.text
+    assert response.text.count("data-image-select-item") == 5
+    assert 'value="sha256:image-4"' in response.text
+    assert 'id="image-batch-delete-dialog"' in response.text
+    assert "data-image-batch-confirm" in response.text
+    assert 'type="module"' in response.text
+    assert "/static/js/image_batch_delete.mjs" in response.text
+
+
+def test_empty_image_list_disables_batch_entry(web_context):
+    client, _store, runtime = web_context
+    runtime.images = []
+
+    response = client.get("/images")
+
+    assert response.status_code == 200
+    assert "data-image-batch-enter disabled" in response.text
+    assert "data-image-select-item" not in response.text
+
+
 def test_untagged_image_uses_short_id_as_detail_link(web_context):
     client, _store, runtime = web_context
     runtime.images = [image_fixture(1, tags=())]

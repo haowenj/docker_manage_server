@@ -36,6 +36,7 @@ docker_manage_server = [
     "templates/errors/*.html",
     "static/css/*.css",
     "static/js/*.js",
+    "static/js/*.mjs",
     "static/vendor/xterm/*.mjs",
     "static/vendor/xterm/*.css",
     "static/vendor/xterm/*.txt",

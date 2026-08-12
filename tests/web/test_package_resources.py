@@ -74,6 +74,14 @@ def test_image_delete_dialog_uses_same_origin_api_and_safe_dom_updates():
     assert "innerHTML" not in script
 
 
+def test_image_batch_delete_module_is_packaged():
+    module = (
+        files("docker_manage_server")
+        .joinpath("static/js/image_batch_delete.mjs")
+    )
+    assert module.is_file()
+
+
 def test_hidden_state_overrides_component_display_styles():
     stylesheet = (
         files("docker_manage_server")
