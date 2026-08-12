@@ -77,7 +77,7 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
 .pagination div { display: flex; gap: 8px; }
 .inspect-json { max-height: 640px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .container-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.container-dialog { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px); padding: 20px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.container-dialog { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px); overflow: auto; padding: 20px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
 .container-dialog::backdrop { background: rgb(15 23 42 / 45%); }
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .dialog-heading h2, .dialog-section h3 { margin: 0; }

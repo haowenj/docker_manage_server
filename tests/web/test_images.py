@@ -105,34 +105,63 @@ def test_image_detail_renders_summary_escaped_inspect_and_links(web_context):
     assert 'action="/images/sha256:image-1/delete"' not in response.text
 
 
-def test_unused_image_delete_previews_and_redirects_to_result(web_context):
+def test_image_detail_embeds_delete_preview_dialog(web_context):
     client, _store, runtime = web_context
-    runtime.images = [image_fixture(1, tags=("demo/app:1",))]
-    runtime.containers = []
+    runtime.images = [image_fixture(1, tags=("demo/app:1", "demo/app:2"))]
+    runtime.containers = [direct_reference()]
 
-    detail = client.get("/images/sha256:image-1")
+    response = client.get("/images/sha256:image-1")
+
+    assert response.status_code == 200
+    assert "镜像名称" in response.text
+    assert 'data-dialog-open="image-delete-dialog"' in response.text
+    assert 'id="image-delete-dialog"' in response.text
+    assert "data-image-delete-dialog" in response.text
     assert (
-        'href="/images/sha256:image-1/delete"'
-        in detail.text
+        'data-delete-url="/api/images/sha256:image-1/tags"'
+        in response.text
     )
+    assert 'data-detail-url="/api/images/sha256:image-1"' in response.text
+    assert 'action="/images/sha256:image-1/delete"' in response.text
+    assert "demo/app:2" in response.text
+    assert "demo/app:1" in response.text
+    assert "极短的外部并发窗口" in response.text
+    assert 'href="/images/sha256:image-1/delete"' not in response.text
 
-    preview = client.get("/images/sha256:image-1/delete")
-    assert "将删除的 Tags" in preview.text
-    assert "demo/app:1" in preview.text
-    assert "极短的外部并发窗口" in preview.text
-    assert "data-confirm" in preview.text
+
+def test_image_delete_web_fallback_redirects_without_result_page(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(1, tags=("demo/app:1", "demo/app:2"))]
+    runtime.containers = [direct_reference()]
 
     deleted = client.post(
         "/images/sha256:image-1/delete",
         follow_redirects=False,
     )
     assert deleted.status_code == 303
-    assert deleted.headers["location"].startswith(
-        "/images/tag-removal-results/"
+    assert deleted.headers["location"] == "/images/sha256:image-1"
+    preview = client.get(
+        "/images/sha256:image-1/delete",
+        follow_redirects=False,
     )
-    result = client.get(deleted.headers["location"])
-    assert "实际删除的 Tags" in result.text
-    assert "demo/app:1" in result.text
+    assert preview.status_code == 307
+    assert preview.headers["location"] == "/images/sha256:image-1"
+
+
+def test_image_delete_web_fallback_returns_to_list_when_image_is_gone(
+    web_context,
+):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(1, tags=("demo/app:1",))]
+    runtime.containers = []
+
+    response = client.post(
+        "/images/sha256:image-1/delete",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/images"
 
 
 def test_images_render_dangling_and_map_errors(web_context):

@@ -1,9 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="panel">
-  <div class="panel-heading container-heading"><h2>{{ image.tags[0] }}</h2><div class="container-heading-actions">{% if containers %}<span class="alert alert-warning">该镜像正被 {{ containers|length }} 个容器使用</span>{% endif %}{% if has_deletable_tags %}<a class="button button-danger" href="/images/{{ image.item.id }}/delete">删除可用 Tags</a>{% endif %}</div></div>
-  <dl class="definition-grid"><dt>镜像 ID</dt><dd><code>{{ image.item.id }}</code></dd><dt>Tags</dt><dd><div class="tag-list">{% for tag in image.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div></dd><dt>大小</dt><dd>{{ image.size }}</dd><dt>创建时间</dt><dd>{{ image.created }}</dd><dt>架构 / 系统</dt><dd>{{ image.item.architecture or '—' }} / {{ image.item.os or '—' }}</dd><dt>入口命令</dt><dd><code>{{ image.entrypoint }}</code></dd><dt>默认命令</dt><dd><code>{{ image.command }}</code></dd></dl>
+  <div class="panel-heading container-heading">
+    <h2 data-image-title>{{ image.display_name }}</h2>
+    <div class="container-heading-actions">
+      {% if containers %}<span class="alert alert-warning">该镜像正被 {{ containers|length }} 个容器使用</span>{% endif %}
+      {% if removal_preview.deletable_tags %}<button class="button button-danger" type="button" data-dialog-open="image-delete-dialog" data-image-delete-open>删除可用镜像名称</button>{% endif %}
+    </div>
+  </div>
+  <dl class="definition-grid">
+    <dt>镜像 ID</dt><dd><code>{{ image.item.id }}</code></dd>
+    <dt>镜像名称</dt><dd><div class="tag-list" data-image-name-list>{% if image.item.tags %}{% for tag in image.item.tags %}<span class="tag">{{ tag }}</span>{% endfor %}{% else %}<span class="tag">{{ image.item.short_id }}</span><span class="muted">未标记</span>{% endif %}</div></dd>
+    <dt>大小</dt><dd>{{ image.size }}</dd>
+    <dt>创建时间</dt><dd>{{ image.created }}</dd>
+    <dt>架构 / 系统</dt><dd>{{ image.item.architecture or '—' }} / {{ image.item.os or '—' }}</dd>
+    <dt>入口命令</dt><dd><code>{{ image.entrypoint }}</code></dd>
+    <dt>默认命令</dt><dd><code>{{ image.command }}</code></dd>
+  </dl>
 </section>
-<section class="panel"><div class="panel-heading"><h2>引用容器</h2><span class="muted">{{ containers|length }} 个</span></div><div class="table-scroll"><table><thead><tr><th>名称</th><th>状态</th><th>容器 ID</th><th>归属</th></tr></thead><tbody>{% for container in containers %}<tr><td><a href="{{ container.href }}">{{ container.item.name }}</a></td><td>{{ container.item.status }}</td><td><code>{{ container.item.id }}</code></td><td>{% if container.item.compose_project %}{{ container.item.compose_project }} / {{ container.item.compose_service or '—' }}{% else %}独立容器{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="empty-cell">没有容器引用此镜像。</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel">
+  <div class="panel-heading"><h2>引用容器</h2><span class="muted">{{ containers|length }} 个</span></div>
+  <div class="table-scroll"><table><thead><tr><th>名称</th><th>状态</th><th>容器 ID</th><th>归属</th></tr></thead><tbody>{% for container in containers %}<tr><td><a href="{{ container.href }}">{{ container.item.name }}</a></td><td>{{ container.item.status }}</td><td><code>{{ container.item.id }}</code></td><td>{% if container.item.compose_project %}{{ container.item.compose_project }} / {{ container.item.compose_service or '—' }}{% else %}独立容器{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="empty-cell">没有容器引用此镜像。</td></tr>{% endfor %}</tbody></table></div>
+</section>
 <section class="panel"><div class="panel-heading"><h2>完整 inspect</h2></div><pre class="inspect-json">{{ inspect_json }}</pre></section>
+{% if removal_preview.deletable_tags %}
+<dialog id="image-delete-dialog" class="container-dialog" data-image-delete-dialog data-delete-url="/api/images/{{ image.item.id }}/tags" data-detail-url="/api/images/{{ image.item.id }}">
+  <div class="dialog-heading"><h2>确认删除可用镜像名称</h2><button class="button button-secondary" type="button" data-dialog-close>关闭</button></div>
+  <div data-image-delete-preview>
+    <div class="alert alert-warning">Docker 不支持条件删除 Tag。系统会在提交时重新检查，但检查与删除之间仍存在极短的外部并发窗口。</div>
+    <section class="dialog-section"><h3>将删除的镜像名称</h3><ul>{% for tag in removal_preview.deletable_tags %}<li><code>{{ tag }}</code></li>{% endfor %}</ul></section>
+    <section class="dialog-section"><h3>因容器正在使用而保留的镜像名称</h3><ul>{% for tag in removal_preview.retained_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul></section>
+  </div>
+  <div class="alert alert-danger" data-image-delete-error hidden></div>
+  <div data-image-delete-result hidden>
+    <section class="dialog-section"><h3>实际删除</h3><ul data-deleted-tags></ul></section>
+    <section class="dialog-section"><h3>保留</h3><ul data-retained-tags></ul></section>
+    <section class="dialog-section"><h3>跳过</h3><ul data-skipped-tags></ul></section>
+    <p data-image-exists-status></p>
+    <a class="button button-secondary" href="/images" data-image-list-link hidden>返回镜像列表</a>
+  </div>
+  <form method="post" action="/images/{{ image.item.id }}/delete" data-image-delete-form>
+    <button class="button button-danger" type="submit" data-image-delete-submit>确认删除</button>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}
