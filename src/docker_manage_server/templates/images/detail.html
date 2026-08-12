@@ -43,5 +43,18 @@
     <button class="button button-danger" type="submit" data-image-delete-submit>确认删除</button>
   </form>
 </dialog>
+<noscript>
+  <section class="panel">
+    <div class="panel-heading"><h2>删除可用镜像名称</h2></div>
+    <div class="alert alert-warning">JavaScript 不可用。提交时系统会重新检查镜像名称；Docker 不支持条件删除 Tag，检查与删除之间仍存在极短的外部并发窗口。</div>
+    <h3>将删除的镜像名称</h3>
+    <ul>{% for tag in removal_preview.deletable_tags %}<li><code>{{ tag }}</code></li>{% endfor %}</ul>
+    <h3>因容器正在使用而保留的镜像名称</h3>
+    <ul>{% for tag in removal_preview.retained_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul>
+    <form method="post" action="/images/{{ image.item.id }}/delete" data-image-delete-fallback>
+      <button class="button button-danger" type="submit">确认删除上述可用镜像名称</button>
+    </form>
+  </section>
+</noscript>
 {% endif %}
 {% endblock %}

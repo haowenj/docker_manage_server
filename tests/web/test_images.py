@@ -129,6 +129,21 @@ def test_image_detail_embeds_delete_preview_dialog(web_context):
     assert 'href="/images/sha256:image-1/delete"' not in response.text
 
 
+def test_image_detail_exposes_no_script_delete_fallback(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(1, tags=("demo/app:1", "demo/app:2"))]
+    runtime.containers = [direct_reference()]
+
+    response = client.get("/images/sha256:image-1")
+
+    assert response.status_code == 200
+    assert "<noscript>" in response.text
+    assert "JavaScript 不可用" in response.text
+    assert "demo/app:2" in response.text
+    assert 'data-image-delete-fallback' in response.text
+    assert 'action="/images/sha256:image-1/delete"' in response.text
+
+
 def test_image_delete_web_fallback_redirects_without_result_page(web_context):
     client, _store, runtime = web_context
     runtime.images = [image_fixture(1, tags=("demo/app:1", "demo/app:2"))]
