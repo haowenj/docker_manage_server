@@ -33,6 +33,7 @@ def test_compose_dialog_script_uses_id_without_css_escape():
         .read_text(encoding="utf-8")
     )
     assert "document.getElementById(button.dataset.dialogOpen)" in script
+    assert "document.getElementById(autoOpenDialogId)" in script
     assert "CSS.escape" not in script
 
 

@@ -18,6 +18,15 @@ document.querySelectorAll("[data-container-dialog]").forEach((dialog) => {
   });
 });
 
+const autoOpenContainer = document.querySelector("[data-auto-open-dialog]");
+const autoOpenDialogId = autoOpenContainer?.dataset.autoOpenDialog;
+if (autoOpenDialogId) {
+  const autoOpenDialog = document.getElementById(autoOpenDialogId);
+  if (autoOpenDialog instanceof HTMLDialogElement && !autoOpenDialog.open) {
+    autoOpenDialog.showModal();
+  }
+}
+
 document.querySelectorAll("[data-directory-editor]").forEach((editor) => {
   const list = editor.querySelector("[data-directory-list]");
   const template = editor.querySelector("[data-directory-row-template]");

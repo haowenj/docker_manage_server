@@ -114,6 +114,45 @@ def test_compose_project_detail_allows_empty_stopped_project(web_context):
     assert "暂无容器" in response.text
 
 
+def test_compose_detail_auto_opens_only_validated_project_container(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "running(1)", ()),
+    )
+    runtime.containers = [
+        compose_container_fixture(container_id="full-container-id")
+    ]
+
+    allowed = client.get(
+        "/compose-projects/mall?container=full-container-id"
+    )
+    unknown = client.get("/compose-projects/mall?container=unknown")
+
+    assert (
+        'data-auto-open-dialog="container-dialog-full-container-id"'
+        in allowed.text
+    )
+    assert 'data-auto-open-dialog=""' in unknown.text
+
+
+def test_compose_detail_does_not_auto_open_cross_project_container(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "running(0)", ()),
+    )
+    runtime.containers = [
+        compose_container_fixture(
+            project="secret",
+            container_id="secret-id",
+        )
+    ]
+
+    response = client.get("/compose-projects/mall?container=secret-id")
+
+    assert 'data-auto-open-dialog=""' in response.text
+    assert "secret-id" not in response.text
+
+
 def test_unknown_compose_project_returns_404(web_context):
     client, _store, _runtime = web_context
     response = client.get("/compose-projects/missing")

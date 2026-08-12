@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 {% set project = compose_project.project %}
+<div data-auto-open-dialog="{{ auto_open_dialog_id or '' }}">
 <section class="panel">
   <div class="panel-heading container-heading"><h2>{{ project.name }}</h2><div class="container-heading-actions"><span class="status {{ 'status-running' if compose_project.running else 'status-stopped' }}">{{ compose_project.status_label }}</span>{% if compose_project.running %}<form method="post" action="/compose-projects/{{ project.name }}/stop" data-confirm="确认停止此 Compose 项目？"><button class="button button-secondary" type="submit">停止</button></form><form method="post" action="/compose-projects/{{ project.name }}/restart" data-confirm="确认重启此 Compose 项目？"><button class="button button-secondary" type="submit">重启</button></form>{% else %}<form method="post" action="/compose-projects/{{ project.name }}/start"><button class="button button-primary" type="submit">启动</button></form>{% endif %}<form method="post" action="/compose-projects/{{ project.name }}/delete" data-confirm="确认删除此 Compose 项目？将删除项目容器和网络，但保留命名卷和数据。"><button class="button button-danger" type="submit">删除</button></form></div></div>
   <dl class="definition-grid">
@@ -43,4 +44,5 @@
 {% else %}暂无标签{% endfor %}</pre></section>
 </dialog>
 {% endfor %}
+</div>
 {% endblock %}

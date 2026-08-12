@@ -458,13 +458,22 @@ def create_web_router(
         return RedirectResponse("/images", status_code=303)
 
     @router.get("/compose-projects/{project_name}", response_class=HTMLResponse)
-    def compose_project_detail(request: Request, project_name: str):
+    def compose_project_detail(
+        request: Request,
+        project_name: str,
+        container: str | None = None,
+    ):
         try:
             project = inventory.find_project(project_name)
         except DockerRuntimeError as exc:
             return _web_error(request, 503, "Docker daemon 不可用", str(exc))
         if project is None:
             return _web_error(request, 404, "找不到 Compose 项目", project_name)
+        auto_open_dialog_id = None
+        if container and any(
+            str(item.get("id")) == container for item in project.containers
+        ):
+            auto_open_dialog_id = f"container-dialog-{container}"
         return templates.TemplateResponse(
             request=request,
             name="compose_projects/detail.html",
@@ -472,6 +481,7 @@ def create_web_router(
                 "page_title": project.name,
                 "active_nav": "runtime",
                 "compose_project": compose_project_view(project),
+                "auto_open_dialog_id": auto_open_dialog_id,
             },
         )
 
