@@ -26,6 +26,16 @@ def test_deployment_editor_assets_are_packaged():
     assert "data-directory-editor" in script
 
 
+def test_compose_dialog_script_uses_id_without_css_escape():
+    script = (
+        files("docker_manage_server")
+        .joinpath("static/js/app.js")
+        .read_text(encoding="utf-8")
+    )
+    assert "document.getElementById(button.dataset.dialogOpen)" in script
+    assert "CSS.escape" not in script
+
+
 def test_runtime_templates_are_packaged():
     package = files("docker_manage_server")
     for path in (

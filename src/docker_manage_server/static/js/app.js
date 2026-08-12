@@ -6,9 +6,7 @@ document.querySelectorAll("form[data-confirm]").forEach((element) => {
 
 document.querySelectorAll("[data-dialog-open]").forEach((button) => {
   button.addEventListener("click", () => {
-    const dialog = document.querySelector(
-      `[data-container-dialog="${CSS.escape(button.dataset.dialogOpen)}"]`,
-    );
+    const dialog = document.getElementById(button.dataset.dialogOpen);
     if (dialog) dialog.showModal();
   });
 });

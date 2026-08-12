@@ -20,7 +20,7 @@
         <td>{{ container.name }}</td><td>{{ container.compose_service }}</td><td>{{ container.image }}</td>
         <td><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></td>
         <td class="container-actions">
-          <button class="button button-secondary" type="button" data-dialog-open="container-{{ container.item.id }}">查看详情</button>
+          <button class="button button-secondary" type="button" data-dialog-open="container-dialog-{{ container.item.id }}">查看详情</button>
           <a class="button button-secondary" href="/compose-projects/{{ project.name }}/containers/{{ container.item.id }}/logs" target="_blank" rel="noopener">查看日志</a>
           <a class="button button-primary" href="/compose-projects/{{ project.name }}/containers/{{ container.item.id }}/terminal" target="_blank" rel="noopener">进入终端</a>
         </td>
@@ -30,7 +30,7 @@
   </table></div>
 </section>
 {% for container in compose_project.containers %}
-<dialog class="container-dialog" data-container-dialog="container-{{ container.item.id }}" aria-labelledby="container-{{ container.item.id }}-title">
+<dialog id="container-dialog-{{ container.item.id }}" class="container-dialog" data-container-dialog="container-{{ container.item.id }}" aria-labelledby="container-{{ container.item.id }}-title">
   <div class="dialog-heading"><h2 id="container-{{ container.item.id }}-title">{{ container.name }}</h2><button class="button button-secondary" type="button" data-dialog-close>关闭</button></div>
   <dl class="definition-grid">
     <dt>Compose 服务</dt><dd>{{ container.compose_service }}</dd><dt>镜像</dt><dd>{{ container.image }}</dd><dt>状态</dt><dd>{{ container.status_label }}</dd><dt>端口</dt><dd>{{ container.ports_text }}</dd>
