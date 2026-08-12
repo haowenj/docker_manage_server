@@ -74,6 +74,15 @@ def test_image_delete_dialog_uses_same_origin_api_and_safe_dom_updates():
     assert "innerHTML" not in script
 
 
+def test_hidden_state_overrides_component_display_styles():
+    stylesheet = (
+        files("docker_manage_server")
+        .joinpath("static/css/app.css")
+        .read_text(encoding="utf-8")
+    )
+    assert "[hidden] { display: none !important; }" in stylesheet
+
+
 def test_runtime_templates_are_packaged():
     package = files("docker_manage_server")
     for path in (
