@@ -30,8 +30,16 @@ curl --fail "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 
 启动后访问：
 
-- 管理台：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/`
+- 运行概览：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/`
+- 部署任务：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/deployments`
+- 运行管理：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/runtime`
 - API 文档：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/docs`
+
+运行概览依次展示最近 5 个部署任务、前 5 个 Compose 项目和前 5 个独立容器。运行管理展示完整列表。Compose 项目通过 `docker compose ls --all` 读取，因此已停止但仍存在的项目也会保留。旧的 `/containers` 列表地址会跳转到 `/runtime`。
+
+Compose 项目详情是项目内容器的统一入口。容器详情为只读弹框；日志和终端使用带项目上下文的独立页面。Compose 内容器不提供单容器启动、停止、重启或删除。没有 Compose 项目标签的独立容器继续使用独立容器详情、日志和终端页面。
+
+服务端镜像必须同时提供 Docker CLI、Docker Compose 插件和 Docker Socket 访问。Docker daemon 不可用时运行管理不可用；Compose 列表命令单独失败时，页面仍显示独立容器，并根据容器标签隔离 Compose 容器。
 
 管理台首版不含鉴权，可上传并部署归档、读取 `.env`、查看日志并打开容器终端，只能暴露在受信任内网。
 
