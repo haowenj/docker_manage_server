@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading"><h2>Compose 项目</h2><span class="muted">{{ compose_projects|length }} 个</span></div>
+  {% if compose_error %}<div class="alert alert-warning">Compose 项目读取失败：{{ compose_error }}</div>{% endif %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>项目</th><th>状态</th><th>运行容器</th><th>配置文件</th></tr></thead>
+    <tbody>{% for entry in compose_projects %}<tr><td><a href="/compose-projects/{{ entry.project.name }}">{{ entry.project.name }}</a></td><td><span class="status {{ 'status-running' if entry.running else 'status-stopped' }}">{{ entry.status_label }}</span></td><td>{{ entry.running_containers }}/{{ entry.container_count }}</td><td>{% for path in entry.project.config_files %}{{ path }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</td></tr>{% else %}<tr><td colspan="4" class="empty-cell">暂无 Compose 项目。</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>独立容器</h2><span class="muted">{{ standalone_containers|length }} 个</span></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>名称</th><th>镜像</th><th>状态</th><th>端口</th><th>短 ID</th></tr></thead>
+    <tbody>{% for container in standalone_containers %}<tr><td><a href="/containers/{{ container.item.id }}">{{ container.name }}</a></td><td>{{ container.image }}</td><td><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></td><td>{{ container.ports_text }}</td><td><code>{{ container.item.short_id }}</code></td></tr>{% else %}<tr><td colspan="5" class="empty-cell">暂无独立容器。</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

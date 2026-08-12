@@ -36,6 +36,7 @@ from .docker_runtime import (
 from .models import DeploymentTask, DirectoryRule
 from .security import CSP, UNSAFE_METHODS, origin_matches_host
 from .storage import TaskStore
+from .runtime_inventory import RuntimeInventoryService
 from .web import PACKAGE_ROOT, create_web_router
 
 
@@ -53,12 +54,14 @@ def create_app(
     settings = settings or get_settings()
     store = store or TaskStore(settings.data_dir)
     runtime = runtime or DockerRuntime(timeout_seconds=settings.compose_timeout_seconds)
+    inventory = RuntimeInventoryService(runtime)
     deployment = DeploymentService(store, runtime)
 
     app = FastAPI(title="Docker Manage Server", version="0.1.0")
     app.state.settings = settings
     app.state.store = store
     app.state.runtime = runtime
+    app.state.inventory = inventory
     app.state.deployment = deployment
 
     @app.middleware("http")
@@ -88,7 +91,7 @@ def create_app(
         return response
 
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
-    app.include_router(create_web_router(store, deployment, runtime))
+    app.include_router(create_web_router(store, deployment, runtime, inventory))
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:

@@ -7,6 +7,10 @@ from starlette.testclient import TestClient
 
 from docker_manage_server.api import create_app
 from docker_manage_server.config import Settings
+from docker_manage_server.docker_runtime import (
+    ComposeListError,
+    ContainerNotFoundError,
+)
 from docker_manage_server.storage import TaskStore
 
 
@@ -15,6 +19,8 @@ class WebFakeRuntime:
         self.available = True
         self.compose_config_returncode = 0
         self.compose_config_stderr = b""
+        self.compose_error = None
+        self.compose_projects = ()
         self.containers = [
             {
                 "id": "abc123",
@@ -40,6 +46,17 @@ class WebFakeRuntime:
 
             raise DockerRuntimeError("daemon offline")
         return self.containers
+
+    def list_compose_projects(self):
+        if self.compose_error:
+            raise ComposeListError(self.compose_error)
+        return self.compose_projects
+
+    def get_serialized_container(self, container_id):
+        for item in self.containers:
+            if item["id"] == container_id:
+                return item
+        raise ContainerNotFoundError(container_id)
 
     def get_container(self, container_id):
         return SimpleNamespace(id=container_id, attrs={})

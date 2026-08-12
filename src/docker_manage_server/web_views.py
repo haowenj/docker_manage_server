@@ -6,6 +6,7 @@ from typing import Any
 
 from .deployment_config import can_edit_task, can_retry_task
 from .models import DeploymentTask, TaskStatus
+from .runtime_inventory import ComposeProject, RuntimeOverview
 
 
 STATUS_LABELS = {
@@ -40,18 +41,35 @@ def container_view(item: Mapping[str, Any]) -> dict[str, Any]:
         "running": bool(item.get("running")),
         "status_label": "运行中" if item.get("running") else str(item.get("status") or "已停止"),
         "ports_text": _format_ports(item.get("ports")),
+        "compose_service": item.get("compose_service") or "—",
     }
 
 
-def dashboard_metrics(
-    tasks: Sequence[DeploymentTask],
-    containers: Sequence[Mapping[str, Any]],
-) -> dict[str, int]:
+def compose_project_view(project: ComposeProject) -> dict[str, Any]:
     return {
+        "project": project,
+        "status_label": project.status,
+        "running": project.running,
+        "container_count": project.container_count,
+        "running_containers": project.running_containers,
+        "containers": [container_view(item) for item in project.containers],
+    }
+
+
+def runtime_metrics(
+    tasks: Sequence[DeploymentTask],
+    overview: RuntimeOverview,
+) -> dict[str, int]:
+    containers = [
+        item
+        for project in overview.compose_projects
+        for item in project.containers
+    ] + list(overview.standalone_containers)
+    return {
+        "compose_projects": len(overview.compose_projects),
+        "standalone_containers": len(overview.standalone_containers),
         "containers": len(containers),
         "running": sum(bool(item.get("running")) for item in containers),
-        "pending_review": sum(task.status is TaskStatus.PENDING_REVIEW for task in tasks),
-        "deployed": sum(task.status is TaskStatus.DEPLOYED for task in tasks),
         "failed": sum(task.status is TaskStatus.FAILED for task in tasks),
     }
 

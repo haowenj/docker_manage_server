@@ -24,7 +24,13 @@ from .deployment_config import (
 from .docker_runtime import ContainerNotFoundError, DockerRuntime, DockerRuntimeError
 from .models import DirectoryRule
 from .storage import TaskStore
-from .web_views import container_view, dashboard_metrics, task_view
+from .runtime_inventory import RuntimeInventoryService
+from .web_views import (
+    compose_project_view,
+    container_view,
+    runtime_metrics,
+    task_view,
+)
 
 
 PACKAGE_ROOT = Path(__file__).parent
@@ -145,18 +151,14 @@ def create_web_router(
     store: TaskStore,
     deployment: DeploymentService,
     runtime: DockerRuntime,
+    inventory: RuntimeInventoryService,
 ) -> APIRouter:
     router = APIRouter(include_in_schema=False)
 
     @router.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
         tasks = store.list()
-        docker_error = None
-        try:
-            containers = runtime.list_containers()
-        except DockerRuntimeError as exc:
-            containers = []
-            docker_error = str(exc)
+        overview = inventory.load()
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
@@ -164,9 +166,17 @@ def create_web_router(
                 "page_title": "运行概览",
                 "active_nav": "dashboard",
                 "tasks": [task_view(task) for task in tasks[:5]],
-                "containers": [container_view(item) for item in containers[:5]],
-                "metrics": dashboard_metrics(tasks, containers),
-                "docker_error": docker_error,
+                "compose_projects": [
+                    compose_project_view(project)
+                    for project in overview.compose_projects[:5]
+                ],
+                "standalone_containers": [
+                    container_view(item)
+                    for item in overview.standalone_containers[:5]
+                ],
+                "metrics": runtime_metrics(tasks, overview),
+                "compose_error": overview.compose_error,
+                "docker_error": overview.docker_error,
             },
         )
 
@@ -294,21 +304,33 @@ def create_web_router(
             return _web_error(request, 409, "任务当前状态不允许丢弃", str(exc))
         return RedirectResponse("/deployments", status_code=303)
 
-    @router.get("/containers", response_class=HTMLResponse)
-    def containers_page(request: Request):
-        try:
-            items = runtime.list_containers()
-        except DockerRuntimeError as exc:
-            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+    @router.get("/runtime", response_class=HTMLResponse)
+    def runtime_page(request: Request):
+        overview = inventory.load()
+        if overview.docker_error:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", overview.docker_error
+            )
         return templates.TemplateResponse(
             request=request,
-            name="containers/list.html",
+            name="runtime/list.html",
             context={
-                "page_title": "容器管理",
-                "active_nav": "containers",
-                "containers": [container_view(item) for item in items],
+                "page_title": "运行管理",
+                "active_nav": "runtime",
+                "compose_projects": [
+                    compose_project_view(project)
+                    for project in overview.compose_projects
+                ],
+                "standalone_containers": [
+                    container_view(item) for item in overview.standalone_containers
+                ],
+                "compose_error": overview.compose_error,
             },
         )
+
+    @router.get("/containers")
+    def legacy_container_list():
+        return RedirectResponse("/runtime", status_code=307)
 
     @router.get("/containers/{container_id}", response_class=HTMLResponse)
     def container_detail(request: Request, container_id: str):
