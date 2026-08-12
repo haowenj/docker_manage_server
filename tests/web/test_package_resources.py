@@ -82,6 +82,21 @@ def test_image_batch_delete_module_is_packaged():
     assert module.is_file()
 
 
+def test_image_batch_delete_module_uses_safe_dom_updates():
+    script = (
+        files("docker_manage_server")
+        .joinpath("static/js/image_batch_delete.mjs")
+        .read_text(encoding="utf-8")
+    )
+    assert "data-image-batch" in script
+    assert 'method: "POST"' in script
+    assert '"Content-Type": "application/json"' in script
+    assert "replaceChildren" in script
+    assert "textContent" in script
+    assert "innerHTML" not in script
+    assert "window.location.assign" in script
+
+
 def test_hidden_state_overrides_component_display_styles():
     stylesheet = (
         files("docker_manage_server")
