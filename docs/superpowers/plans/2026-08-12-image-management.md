@@ -354,3 +354,31 @@ Real Docker tests may skip only for unavailable daemon or absent local base imag
 - [ ] **Step 6: Commit and independent review**
 
 Commit README/integration/security as `docs: verify image management workflows`. Review `a2750e5..HEAD` against the approved spec. Fix every Critical/Important finding with regression tests and repeat full verification. Keep local `main`; do not push.
+
+---
+
+### Task 7: 按容器原始引用预览并删除可用 Tags
+
+**Files:**
+- Modify: `src/docker_manage_server/docker_runtime.py`
+- Modify: `src/docker_manage_server/image_inventory.py`
+- Modify: `src/docker_manage_server/api.py`
+- Modify: `src/docker_manage_server/web.py`
+- Modify: `src/docker_manage_server/templates/images/detail.html`
+- Create: `src/docker_manage_server/templates/images/delete.html`
+- Create: `src/docker_manage_server/templates/images/delete_result.html`
+- Modify: image unit/API/Web/integration tests and `README.md`
+
+**Interfaces:**
+- Container serialization produces `image_reference` from inspect `Config.Image`.
+- `preview_tag_removal(image_id) -> ImageTagRemovalPreview` returns immutable ID, deletable and retained Tags.
+- `remove_available_tags(image_id) -> ImageTagRemovalResult` returns deleted, retained, skipped Tags and image existence.
+- Web preview/POST/result routes and API preview/DELETE-tags routes follow the design revision.
+
+- [ ] Write failing tests for original Tag references, running/stopped retention, dangling/all-used 409, submit-time recomputation, disappeared/repointed skip, per-image lock, 503 deletion/serialization errors, preview/result HTML and API payloads.
+- [ ] Run focused tests and confirm failures reflect the old whole-image behavior.
+- [ ] Implement container `image_reference`, frozen preview/result dataclasses, per-image locks, Tag classification and non-force removal without explicit full-ID deletion.
+- [ ] Implement API preview and Tag deletion routes; remove the old whole-image DELETE route.
+- [ ] Implement preview confirmation and result pages with short-lived in-memory result IDs; change detail action to open preview.
+- [ ] Update real Docker coverage and README to Tag-level semantics.
+- [ ] Run focused and complete verification, commit, and request review.

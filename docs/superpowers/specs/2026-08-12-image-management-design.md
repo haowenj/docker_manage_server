@@ -246,3 +246,38 @@ Compose 项目详情页增加对 `container` 查询参数的只读处理。现�
 - 删除构建缓存、卷或容器；
 - 后台任务、进度轮询、重试或回滚；
 - 自定义每页数量或客户端分页。
+
+## 设计修订：按使用状态删除 Tags
+
+本节替代前文“删除整张镜像”的语义。删除改为 Tag 粒度，不再主动按完整镜像 ID 删除底层镜像。
+
+容器序列化增加 inspect `Config.Image` 作为 `image_reference`。服务端以该原始引用与完整 Tag 精确匹配，判断 Tag 是否被运行中或已停止容器使用。使用镜像 ID或 digest 创建的容器仍出现在引用列表中，但不把某个 Tag标记为正在使用。
+
+详情页只要存在至少一个未使用 Tag，就显示“删除可用 Tags”。操作先进入预览页，列出当前可删除和因容器引用而保留的 Tags；没有 Tag 的 dangling 镜像或全部 Tags 都在使用时不能提交。用户一次确认后删除全部可用 Tags，不提供复选框。
+
+提交时实时重算，不能相信预览结果：
+
+1. 重新读取目标镜像并固定 daemon 返回的完整 ID；
+2. 重新读取全部容器原始镜像引用，计算 `retained_tags` 和候选 Tags；
+3. 每个候选 Tag 删除前重新解析；已消失或已指向其他镜像时放入 `skipped_tags`，不调用删除；
+4. 仍指向固定完整 ID的 Tag使用 `force=False`、`noprune=False` 删除并放入 `deleted_tags`；
+5. 不主动按完整镜像 ID删除；返回镜像 ID、三个 Tag列表和 `image_exists`。
+
+Docker Engine 没有“仅当 Tag仍指向指定镜像 ID时删除”的原子条件接口。重新解析和删除之间仍有极短的外部并发窗口；预览页必须明确说明。进程内按完整镜像 ID互斥，避免本应用自身并发操作，但不能锁住其他 Docker 客户端。
+
+Tag 已消失或重指属于预期并发结果，进入 `skipped_tags`。Docker SDK/daemon 删除失败立即停止，返回 `503`，不重试、不回滚、不强制删除。inspect 或序列化阶段的 Docker SDK错误也必须映射为 `503`。
+
+Web 路由调整为：
+
+- `GET /images/{image_id}/delete`：Tag删除预览；
+- `POST /images/{image_id}/delete`：实时重算并删除可用 Tags；
+- `GET /images/tag-removal-results/{result_id}`：一次性结果页。
+
+POST 成功以 `303` 跳转结果页。结果页列出实际删除、保留、跳过的 Tags和镜像是否仍存在；镜像仍存在时提供返回详情，始终提供返回列表。
+
+REST API 调整为：
+
+- `GET /api/images/{image_id}/tag-removal-preview`；
+- `DELETE /api/images/{image_id}/tags`。
+
+API 删除响应包含 `id`、`deleted_tags`、`retained_tags`、`skipped_tags` 和 `image_exists`。没有任何可删除 Tag返回 `409`。
