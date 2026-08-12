@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -180,3 +181,87 @@ def test_logs_passes_tail_and_timestamps():
     output = runtime.logs("abc", tail="100", timestamps=True)
     assert output == b"hello\n"
     assert calls == {"tail": "100", "timestamps": True}
+
+
+@pytest.mark.parametrize(
+    ("method_name", "container_method", "expected_kwargs"),
+    [
+        ("start_container", "start", {}),
+        ("stop_container", "stop", {}),
+        ("restart_container", "restart", {}),
+        ("remove_container", "remove", {"force": False, "v": False}),
+    ],
+)
+def test_container_lifecycle_uses_docker_sdk(
+    method_name, container_method, expected_kwargs
+):
+    calls = []
+    container = SimpleNamespace(
+        **{container_method: lambda **kwargs: calls.append(kwargs)}
+    )
+    runtime = DockerRuntime(
+        client=SimpleNamespace(
+            containers=SimpleNamespace(get=lambda _container_id: container)
+        )
+    )
+
+    getattr(runtime, method_name)("immutable-id")
+
+    assert calls == [expected_kwargs]
+
+
+def test_container_lifecycle_maps_sdk_failure():
+    def fail():
+        raise DockerException("operation failed")
+
+    runtime = DockerRuntime(
+        client=SimpleNamespace(
+            containers=SimpleNamespace(
+                get=lambda _container_id: SimpleNamespace(start=fail)
+            )
+        )
+    )
+
+    with pytest.raises(DockerRuntimeError, match="operation failed"):
+        runtime.start_container("immutable-id")
+
+
+@pytest.mark.parametrize(
+    ("method_name", "subcommand"),
+    [
+        ("start_compose_project", "start"),
+        ("stop_compose_project", "stop"),
+        ("restart_compose_project", "restart"),
+        ("remove_compose_project", "down"),
+    ],
+)
+def test_compose_lifecycle_uses_project_name_empty_directory_and_no_shell(
+    method_name, subcommand
+):
+    calls = []
+
+    def runner(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout=b"ok", stderr=b"")
+
+    runtime = DockerRuntime(client=SimpleNamespace(), command_runner=runner)
+
+    getattr(runtime, method_name)("mall")
+
+    argv, kwargs = calls[0]
+    assert argv == ["docker", "compose", "--project-name", "mall", subcommand]
+    assert kwargs["shell"] is False
+    assert Path(kwargs["cwd"]).name.startswith("docker-manage-compose-")
+    assert not Path(kwargs["cwd"]).exists()
+
+
+def test_compose_lifecycle_maps_nonzero_exit():
+    runtime = DockerRuntime(
+        client=SimpleNamespace(),
+        command_runner=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"compose failed"
+        ),
+    )
+
+    with pytest.raises(DockerRuntimeError, match="compose failed"):
+        runtime.stop_compose_project("mall")

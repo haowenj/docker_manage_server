@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 from typing import Any, Callable
 
 import docker
@@ -113,6 +114,27 @@ class DockerRuntime:
     def get_serialized_container(self, container_id: str) -> dict[str, Any]:
         return self._serialize_container(self.get_container(container_id))
 
+    def start_container(self, container_id: str) -> None:
+        self._container_action(container_id, "start")
+
+    def stop_container(self, container_id: str) -> None:
+        self._container_action(container_id, "stop")
+
+    def restart_container(self, container_id: str) -> None:
+        self._container_action(container_id, "restart")
+
+    def remove_container(self, container_id: str) -> None:
+        self._container_action(container_id, "remove", force=False, v=False)
+
+    def _container_action(
+        self, container_id: str, action: str, **kwargs: Any
+    ) -> None:
+        container = self.get_container(container_id)
+        try:
+            getattr(container, action)(**kwargs)
+        except DockerException as exc:
+            raise DockerRuntimeError(str(exc)) from exc
+
     def logs(self, container_id: str, tail: str = "all", timestamps: bool = False) -> bytes:
         container = self.get_container(container_id)
         try:
@@ -153,6 +175,38 @@ class DockerRuntime:
             ],
             project_dir,
         )
+
+    def start_compose_project(self, project_name: str) -> None:
+        self._compose_project_action(project_name, "start")
+
+    def stop_compose_project(self, project_name: str) -> None:
+        self._compose_project_action(project_name, "stop")
+
+    def restart_compose_project(self, project_name: str) -> None:
+        self._compose_project_action(project_name, "restart")
+
+    def remove_compose_project(self, project_name: str) -> None:
+        self._compose_project_action(project_name, "down")
+
+    def _compose_project_action(self, project_name: str, action: str) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="docker-manage-compose-"
+        ) as directory:
+            result = self._run(
+                [
+                    "docker",
+                    "compose",
+                    "--project-name",
+                    project_name,
+                    action,
+                ],
+                Path(directory),
+            )
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise DockerRuntimeError(
+                detail or f"docker compose {action} exited {result.returncode}"
+            )
 
     def create_terminal(self, container_id: str, command: list[str]) -> TerminalSession:
         container = self.get_container(container_id)
