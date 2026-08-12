@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import asdict
 import json
 from pathlib import Path
+import re
 import shlex
 import socket as socket_module
 from typing import Any
@@ -12,7 +13,7 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.websockets import WebSocketDisconnect
 
 from .artifacts import list_files
@@ -56,6 +57,29 @@ class DeploymentConfigurationPayload(BaseModel):
     env: str
     compose: str
     directories: tuple[DirectoryRule, ...] = ()
+
+
+IMAGE_ID_PATTERN = r"^sha256:[0-9a-fA-F]{64}$"
+
+
+class ImageBatchPreviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    image_ids: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("image_ids")
+    @classmethod
+    def validate_image_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("image_ids must not contain duplicates")
+        if any(re.fullmatch(IMAGE_ID_PATTERN, item) is None for item in value):
+            raise ValueError("image_ids must contain full sha256 image IDs")
+        return value
+
+
+class ImageBatchDeletePayload(ImageBatchPreviewPayload):
+    query: str = ""
+    page: int = Field(default=1, ge=1)
 
 
 def create_app(
@@ -233,6 +257,32 @@ def create_app(
             return asdict(images.list(q, page))
         except InvalidImagePageError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/images/batch-delete-preview")
+    def preview_image_batch_delete(
+        payload: ImageBatchPreviewPayload,
+    ) -> dict[str, Any]:
+        try:
+            return asdict(
+                images.preview_batch_removal(tuple(payload.image_ids))
+            )
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/images/batch-delete")
+    def delete_image_batch(
+        payload: ImageBatchDeletePayload,
+    ) -> dict[str, Any]:
+        try:
+            return asdict(
+                images.remove_unused_images(
+                    tuple(payload.image_ids),
+                    query=payload.query,
+                    page=payload.page,
+                )
+            )
         except DockerRuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 

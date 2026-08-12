@@ -12,11 +12,17 @@ from docker_manage_server.docker_runtime import (
 from docker_manage_server.storage import TaskStore
 
 
-def image_fixture():
+IMAGE_ID = "sha256:" + "a" * 64
+FREE_ID = "sha256:" + "b" * 64
+DANGLING_ID = "sha256:" + "c" * 64
+MISSING_ID = "sha256:" + "d" * 64
+
+
+def image_fixture(image_id=IMAGE_ID, tags=("demo:1",)):
     return {
-        "id": "sha256:image",
-        "short_id": "image",
-        "tags": ["demo:1"],
+        "id": image_id,
+        "short_id": image_id.removeprefix("sha256:")[:12],
+        "tags": list(tags),
         "digests": [],
         "created": "2026-08-12T00:00:00Z",
         "size": 100,
@@ -24,7 +30,7 @@ def image_fixture():
         "os": "linux",
         "entrypoint": None,
         "command": ["serve"],
-        "raw_attrs": {"Id": "sha256:image"},
+        "raw_attrs": {"Id": image_id},
     }
 
 
@@ -37,12 +43,13 @@ class ImageApiRuntime:
                 "name": "consumer",
                 "status": "exited",
                 "running": False,
-                "image_id": "sha256:image",
+                "image_id": IMAGE_ID,
                 "image_reference": "demo:1",
                 "labels": {},
             }
         ]
         self.fail = None
+        self.fail_reference = None
 
     def list_images(self):
         if self.fail == "list":
@@ -62,6 +69,8 @@ class ImageApiRuntime:
 
     def remove_image(self, reference):
         if self.fail == "remove":
+            raise DockerRuntimeError("remove failed")
+        if reference == self.fail_reference:
             raise DockerRuntimeError("remove failed")
         for item in list(self.images):
             if reference in item["tags"]:
@@ -96,15 +105,15 @@ def test_image_api_lists_searches_and_pages(client):
     assert payload["page"] == 1
     assert payload["page_size"] == 20
     assert payload["total_items"] == 1
-    assert payload["items"][0]["id"] == "sha256:image"
+    assert payload["items"][0]["id"] == IMAGE_ID
     assert payload["items"][0]["container_count"] == 1
 
 
 def test_image_api_returns_inspect_and_container_references(client):
-    response = client.get("/api/images/sha256:image")
+    response = client.get(f"/api/images/{IMAGE_ID}")
 
     assert response.status_code == 200
-    assert response.json()["inspect"]["Id"] == "sha256:image"
+    assert response.json()["inspect"]["Id"] == IMAGE_ID
     assert response.json()["containers"][0]["id"] == "container-id"
 
 
@@ -123,7 +132,7 @@ def test_image_api_previews_used_tag_then_deletes_available_tags(client):
 
     assert deleted.status_code == 200
     assert deleted.json() == {
-        "id": "sha256:image",
+        "id": IMAGE_ID,
         "deleted_tags": ["demo:1"],
         "retained_tags": [],
         "skipped_tags": [],
@@ -141,7 +150,108 @@ def test_image_api_maps_missing_invalid_page_and_runtime_errors(client):
     runtime.fail = "list"
     assert client.get("/api/images").status_code == 503
     runtime.fail = "get"
-    assert client.get("/api/images/sha256:image").status_code == 503
+    assert client.get(f"/api/images/{IMAGE_ID}").status_code == 503
     runtime.fail = "remove"
     runtime.containers = []
-    assert client.delete("/api/images/sha256:image/tags").status_code == 503
+    assert client.delete(f"/api/images/{IMAGE_ID}/tags").status_code == 503
+
+
+def test_image_batch_api_previews_then_deletes_only_unused_images(client):
+    runtime = client.app.state.test_runtime
+    runtime.images.extend(
+        [
+            image_fixture(FREE_ID, ("demo/free:1", "demo/free:2")),
+            image_fixture(DANGLING_ID, ()),
+        ]
+    )
+
+    preview = client.post(
+        "/api/images/batch-delete-preview",
+        json={"image_ids": [IMAGE_ID, FREE_ID, DANGLING_ID, MISSING_ID]},
+    )
+
+    assert preview.status_code == 200
+    assert [item["id"] for item in preview.json()["deletable"]] == [
+        FREE_ID,
+        DANGLING_ID,
+    ]
+    assert preview.json()["in_use"][0]["id"] == IMAGE_ID
+    assert preview.json()["in_use"][0]["containers"][0]["name"] == "consumer"
+    assert preview.json()["missing"] == [MISSING_ID]
+
+    deleted = client.post(
+        "/api/images/batch-delete",
+        json={
+            "image_ids": [IMAGE_ID, FREE_ID, DANGLING_ID, MISSING_ID],
+            "query": "demo",
+            "page": 2,
+        },
+    )
+
+    assert deleted.status_code == 200
+    payload = deleted.json()
+    assert [item["id"] for item in payload["deleted"]] == [FREE_ID, DANGLING_ID]
+    assert [item["id"] for item in payload["in_use"]] == [IMAGE_ID]
+    assert payload["missing"] == [MISSING_ID]
+    assert payload["failed"] == []
+    assert payload["suggested_page"] == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"image_ids": []},
+        {"image_ids": [IMAGE_ID, IMAGE_ID]},
+        {"image_ids": ["sha256:not-hex"]},
+        {"image_ids": ["a" * 64]},
+        {"image_ids": [f"sha256:{index:064x}" for index in range(21)]},
+        {"image_ids": [IMAGE_ID], "page": 0},
+        {"image_ids": [IMAGE_ID], "unexpected": True},
+    ],
+)
+def test_image_batch_api_rejects_invalid_payloads(client, payload):
+    path = (
+        "/api/images/batch-delete"
+        if "page" in payload or "unexpected" in payload
+        else "/api/images/batch-delete-preview"
+    )
+    assert client.post(path, json=payload).status_code == 422
+
+
+def test_image_batch_execute_maps_initial_snapshot_failure_to_503(client):
+    runtime = client.app.state.test_runtime
+    runtime.fail = "list"
+
+    response = client.post(
+        "/api/images/batch-delete",
+        json={"image_ids": [IMAGE_ID], "query": "", "page": 1},
+    )
+
+    assert response.status_code == 503
+    assert runtime.images == [image_fixture()]
+
+
+def test_image_batch_api_returns_item_failure_and_continues(client):
+    runtime = client.app.state.test_runtime
+    runtime.containers = []
+    runtime.images.extend(
+        [
+            image_fixture(FREE_ID, ("demo/free:1",)),
+            image_fixture(DANGLING_ID, ()),
+        ]
+    )
+    runtime.fail_reference = FREE_ID
+
+    response = client.post(
+        "/api/images/batch-delete",
+        json={
+            "image_ids": [FREE_ID, DANGLING_ID],
+            "query": "",
+            "page": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["failed"]] == [FREE_ID]
+    assert response.json()["failed"][0]["error"] == "remove failed"
+    assert [item["id"] for item in response.json()["deleted"]] == [DANGLING_ID]
