@@ -64,11 +64,12 @@ def test_cross_origin_compose_terminal_is_rejected(web_context):
 
 def test_cross_origin_runtime_actions_are_rejected(web_context):
     client, _store, runtime = web_context
-    for path in (
-        "/containers/abc123/stop",
-        "/compose-projects/mall/stop",
+    for method, path in (
+        ("post", "/containers/abc123/stop"),
+        ("post", "/compose-projects/mall/stop"),
+        ("delete", "/api/compose-projects/mall"),
     ):
-        response = client.post(
+        response = getattr(client, method)(
             path,
             headers={"Origin": "https://evil.example"},
         )

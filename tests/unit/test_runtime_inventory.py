@@ -181,7 +181,7 @@ def test_require_project_and_standalone_container_enforce_labels():
         inventory.require_standalone_container("compose-web")
 
 
-def test_find_project_returns_project_or_none_and_maps_docker_failure():
+def test_find_project_returns_project_or_none_and_maps_runtime_failures():
     runtime = FakeRuntime(
         projects=(ComposeProjectRecord("mall", "running(0)", ()),)
     )
@@ -194,4 +194,11 @@ def test_find_project_returns_project_or_none_and_maps_docker_failure():
         DockerRuntimeError("daemon offline")
     )
     with pytest.raises(DockerRuntimeError, match="daemon offline"):
+        inventory.find_project("mall")
+
+    runtime.list_containers = lambda: []
+    runtime.list_compose_projects = lambda: (_ for _ in ()).throw(
+        ComposeListError("compose plugin unavailable")
+    )
+    with pytest.raises(DockerRuntimeError, match="compose plugin unavailable"):
         inventory.find_project("mall")

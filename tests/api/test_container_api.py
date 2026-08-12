@@ -6,6 +6,7 @@ from starlette.testclient import TestClient
 from docker_manage_server.api import create_app
 from docker_manage_server.config import Settings
 from docker_manage_server.docker_runtime import (
+    ComposeListError,
     ComposeProjectRecord,
     ContainerNotFoundError,
     ContainerNotRunningError,
@@ -21,6 +22,7 @@ class ContainerApiRuntime:
         self.direct_running = True
         self.mall_running = True
         self.mall_exists = True
+        self.compose_error = None
 
     def ping(self):
         return True
@@ -108,6 +110,8 @@ class ContainerApiRuntime:
         raise ContainerNotFoundError(container_id)
 
     def list_compose_projects(self):
+        if self.compose_error:
+            raise ComposeListError(self.compose_error)
         if not self.mall_exists:
             return ()
         status = "running(1)" if self.mall_running else "exited(1)"
@@ -267,3 +271,24 @@ def test_compose_lifecycle_api_uses_explicit_project_actions(client):
 def test_compose_lifecycle_api_rejects_state_and_missing_project(client):
     assert client.post("/api/compose-projects/mall/start").status_code == 409
     assert client.post("/api/compose-projects/missing/stop").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("post", "/api/compose-projects/mall/start"),
+        ("post", "/api/compose-projects/mall/stop"),
+        ("post", "/api/compose-projects/mall/restart"),
+        ("delete", "/api/compose-projects/mall"),
+    ],
+)
+def test_compose_lifecycle_api_maps_compose_inventory_failure_to_503(
+    client, method, path
+):
+    client.app.state.test_runtime.compose_error = "compose plugin unavailable"
+
+    response = getattr(client, method)(path)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "compose plugin unavailable"
+    assert client.app.state.test_runtime.lifecycle_calls == []

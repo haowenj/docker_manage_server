@@ -121,6 +121,17 @@ def test_unknown_compose_project_returns_404(web_context):
     assert "找不到 Compose 项目" in response.text
 
 
+def test_compose_web_action_maps_compose_inventory_failure_to_503(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_error = "compose plugin unavailable"
+
+    response = client.post("/compose-projects/mall/stop")
+
+    assert response.status_code == 503
+    assert "compose plugin unavailable" in response.text
+    assert runtime.lifecycle_calls == []
+
+
 def test_compose_log_and_terminal_pages_keep_project_context(web_context):
     client, _store, runtime = web_context
     runtime.containers = [compose_container_fixture()]

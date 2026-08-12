@@ -117,6 +117,8 @@ class RuntimeInventoryService:
         overview = self.load()
         if overview.docker_error:
             raise DockerRuntimeError(overview.docker_error)
+        if overview.compose_error:
+            raise ComposeListError(overview.compose_error)
         return next(
             (project for project in overview.compose_projects if project.name == name),
             None,
