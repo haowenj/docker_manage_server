@@ -61,6 +61,7 @@ def compose_project_view(project: ComposeProject) -> dict[str, Any]:
 def image_summary_view(item: ImageSummary) -> dict[str, Any]:
     return {
         "item": item,
+        "display_name": item.tags[0] if item.tags else item.short_id,
         "tags": item.tags or ("未标记",),
         "created": _format_docker_time(item.created),
         "size": _format_bytes(item.size),

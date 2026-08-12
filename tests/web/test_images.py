@@ -68,6 +68,22 @@ def test_image_navigation_list_search_and_pagination(web_context):
     assert "q=demo&amp;page=1" in response.text
     assert response.text.count('class="image-row"') == 5
     assert "引用容器" in response.text
+    assert "镜像名称" in response.text
+    assert "<th>Tags</th>" not in response.text
+    assert 'href="/images/sha256:image-4"' in response.text
+    assert ">demo/item:4</a>" in response.text
+
+
+def test_untagged_image_uses_short_id_as_detail_link(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(1, tags=())]
+
+    response = client.get("/images")
+
+    assert response.status_code == 200
+    assert 'href="/images/sha256:image-1"' in response.text
+    assert ">image-1</a>" in response.text
+    assert "未标记" in response.text
 
 
 def test_image_detail_renders_summary_escaped_inspect_and_links(web_context):
