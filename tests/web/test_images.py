@@ -130,3 +130,26 @@ def test_images_render_dangling_and_map_errors(web_context):
     assert client.post("/images/sha256:image-1/delete").status_code == 409
     runtime.image_error = "offline"
     assert client.get("/images").status_code == 503
+
+
+def test_image_detail_maps_preview_container_failure_to_503(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [image_fixture(1, tags=("demo/app:1",))]
+    original_list_containers = runtime.list_containers
+    calls = 0
+
+    def fail_second_container_list():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            from docker_manage_server.docker_runtime import DockerRuntimeError
+
+            raise DockerRuntimeError("container inspect failed")
+        return original_list_containers()
+
+    runtime.list_containers = fail_second_container_list
+
+    response = client.get("/images/sha256:image-1")
+
+    assert response.status_code == 503
+    assert "container inspect failed" in response.text

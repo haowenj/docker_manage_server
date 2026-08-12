@@ -416,6 +416,7 @@ def create_web_router(
     def image_detail(request: Request, image_id: str):
         try:
             detail = images.get(image_id)
+            removal_preview = images.preview_tag_removal(detail.summary.id)
         except ImageNotFoundError:
             return _web_error(request, 404, "找不到镜像", image_id)
         except DockerRuntimeError as exc:
@@ -443,9 +444,7 @@ def create_web_router(
                     image_reference_view(item)
                     for item in detail.containers
                 ],
-                "has_deletable_tags": bool(
-                    images.preview_tag_removal(detail.summary.id).deletable_tags
-                ),
+                "has_deletable_tags": bool(removal_preview.deletable_tags),
             },
         )
 

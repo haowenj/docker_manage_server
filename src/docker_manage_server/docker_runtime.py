@@ -76,9 +76,9 @@ class DockerRuntime:
     def list_containers(self) -> list[dict[str, Any]]:
         try:
             containers = self.client.containers.list(all=True)
+            return [self._serialize_container(container) for container in containers]
         except DockerException as exc:
             raise DockerRuntimeError(str(exc)) from exc
-        return [self._serialize_container(container) for container in containers]
 
     def list_images(self) -> list[dict[str, Any]]:
         try:

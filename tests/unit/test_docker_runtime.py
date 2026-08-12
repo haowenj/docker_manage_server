@@ -150,6 +150,19 @@ def test_list_containers_maps_docker_sdk_failure():
         DockerRuntime(client=client).list_containers()
 
 
+def test_container_serialization_maps_sdk_failure():
+    class BrokenContainer:
+        @property
+        def attrs(self):
+            raise DockerException("container inspect failed")
+
+    client = SimpleNamespace(
+        containers=SimpleNamespace(list=lambda all=True: [BrokenContainer()])
+    )
+    with pytest.raises(DockerRuntimeError, match="container inspect failed"):
+        DockerRuntime(client=client).list_containers()
+
+
 def test_compose_up_uses_fixed_directory_and_no_shell(tmp_path):
     calls = []
 
