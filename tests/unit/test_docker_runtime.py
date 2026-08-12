@@ -1,6 +1,13 @@
+import json
 from types import SimpleNamespace
 
-from docker_manage_server.docker_runtime import DockerRuntime
+import pytest
+
+from docker_manage_server.docker_runtime import (
+    ComposeListError,
+    ComposeProjectRecord,
+    DockerRuntime,
+)
 
 
 def test_list_containers_returns_ps_fields_and_raw_attrs():
@@ -64,6 +71,87 @@ def test_compose_config_uses_candidate_files_project_directory_and_no_shell(tmp_
     ]
     assert calls[0][1]["cwd"] == str(tmp_path)
     assert calls[0][1]["shell"] is False
+
+
+def test_list_compose_projects_uses_all_json_and_no_shell():
+    calls = []
+    payload = [
+        {
+            "Name": "mall-stack",
+            "Status": "running(3)",
+            "ConfigFiles": "/srv/mall/compose.yaml,/srv/mall/compose.prod.yaml",
+        }
+    ]
+
+    def runner(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(payload).encode(),
+            stderr=b"",
+        )
+
+    runtime = DockerRuntime(client=SimpleNamespace(), command_runner=runner)
+    assert runtime.list_compose_projects() == (
+        ComposeProjectRecord(
+            name="mall-stack",
+            status="running(3)",
+            config_files=(
+                "/srv/mall/compose.yaml",
+                "/srv/mall/compose.prod.yaml",
+            ),
+        ),
+    )
+    assert calls[0][0] == ["docker", "compose", "ls", "--all", "--format", "json"]
+    assert calls[0][1]["shell"] is False
+    assert calls[0][1]["timeout"] == 1800
+
+
+def test_list_compose_projects_accepts_empty_json_array():
+    runtime = DockerRuntime(
+        client=SimpleNamespace(),
+        command_runner=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout=b"[]\n", stderr=b""
+        ),
+    )
+    assert runtime.list_compose_projects() == ()
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (
+            SimpleNamespace(
+                returncode=1, stdout=b"", stderr=b"compose unavailable"
+            ),
+            "compose unavailable",
+        ),
+        (
+            SimpleNamespace(returncode=0, stdout=b"not-json", stderr=b""),
+            "invalid docker compose ls JSON",
+        ),
+        (
+            SimpleNamespace(returncode=0, stdout=b"{}", stderr=b""),
+            "expected a list",
+        ),
+    ],
+)
+def test_list_compose_projects_maps_failures(result, message):
+    runtime = DockerRuntime(
+        client=SimpleNamespace(),
+        command_runner=lambda *_args, **_kwargs: result,
+    )
+    with pytest.raises(ComposeListError, match=message):
+        runtime.list_compose_projects()
+
+
+def test_list_compose_projects_maps_command_execution_failure():
+    def runner(*_args, **_kwargs):
+        raise OSError("docker not found")
+
+    runtime = DockerRuntime(client=SimpleNamespace(), command_runner=runner)
+    with pytest.raises(ComposeListError, match="docker not found"):
+        runtime.list_compose_projects()
 
 
 def test_logs_passes_tail_and_timestamps():

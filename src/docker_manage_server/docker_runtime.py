@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import subprocess
 from typing import Any, Callable
@@ -11,6 +12,10 @@ from docker.errors import APIError, DockerException, NotFound
 
 class DockerRuntimeError(RuntimeError):
     """A Docker daemon or command execution error."""
+
+
+class ComposeListError(DockerRuntimeError):
+    pass
 
 
 class ContainerNotFoundError(DockerRuntimeError):
@@ -26,6 +31,13 @@ class CommandResult:
     returncode: int
     stdout: bytes
     stderr: bytes
+
+
+@dataclass(frozen=True)
+class ComposeProjectRecord:
+    name: str
+    status: str
+    config_files: tuple[str, ...]
 
 
 @dataclass
@@ -53,6 +65,38 @@ class DockerRuntime:
 
     def list_containers(self) -> list[dict[str, Any]]:
         return [self._serialize_container(container) for container in self.client.containers.list(all=True)]
+
+    def list_compose_projects(self) -> tuple[ComposeProjectRecord, ...]:
+        try:
+            result = self._run(
+                ["docker", "compose", "ls", "--all", "--format", "json"],
+                Path.cwd(),
+            )
+        except DockerRuntimeError as exc:
+            raise ComposeListError(str(exc)) from exc
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip()
+            raise ComposeListError(
+                detail or f"docker compose ls exited {result.returncode}"
+            )
+        try:
+            payload = json.loads(result.stdout.decode("utf-8") or "[]")
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ComposeListError(f"invalid docker compose ls JSON: {exc}") from exc
+        if not isinstance(payload, list):
+            raise ComposeListError("invalid docker compose ls JSON: expected a list")
+        records = []
+        for item in payload:
+            if not isinstance(item, dict) or not isinstance(item.get("Name"), str):
+                raise ComposeListError("invalid docker compose ls project record")
+            records.append(
+                ComposeProjectRecord(
+                    name=item["Name"],
+                    status=str(item.get("Status") or "unknown"),
+                    config_files=_config_files(item.get("ConfigFiles")),
+                )
+            )
+        return tuple(records)
 
     def get_container(self, container_id: str) -> Any:
         try:
@@ -173,3 +217,11 @@ class DockerRuntime:
             "networks": attrs.get("NetworkSettings", {}).get("Networks", {}),
             "raw_attrs": attrs,
         }
+
+
+def _config_files(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        return ()
+    return tuple(
+        dict.fromkeys(part.strip() for part in value.split(",") if part.strip())
+    )
