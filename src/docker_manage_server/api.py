@@ -37,6 +37,11 @@ from .models import DeploymentTask, DirectoryRule
 from .security import CSP, UNSAFE_METHODS, origin_matches_host
 from .storage import TaskStore
 from .runtime_inventory import RuntimeInventoryService
+from .runtime_lifecycle import (
+    RuntimeActionConflictError,
+    RuntimeLifecycleService,
+    RuntimeResourceNotFoundError,
+)
 from .web import PACKAGE_ROOT, create_web_router
 
 
@@ -55,6 +60,7 @@ def create_app(
     store = store or TaskStore(settings.data_dir)
     runtime = runtime or DockerRuntime(timeout_seconds=settings.compose_timeout_seconds)
     inventory = RuntimeInventoryService(runtime)
+    lifecycle = RuntimeLifecycleService(runtime, inventory)
     deployment = DeploymentService(store, runtime)
 
     app = FastAPI(title="Docker Manage Server", version="0.1.0")
@@ -62,6 +68,7 @@ def create_app(
     app.state.store = store
     app.state.runtime = runtime
     app.state.inventory = inventory
+    app.state.lifecycle = lifecycle
     app.state.deployment = deployment
 
     @app.middleware("http")
@@ -225,6 +232,91 @@ def create_app(
         except DockerRuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return PlainTextResponse(output.decode("utf-8", errors="replace"))
+
+    def container_lifecycle_action(
+        container_id: str,
+        action: str,
+    ) -> dict[str, Any]:
+        try:
+            item = getattr(lifecycle, f"{action}_container")(container_id)
+        except ContainerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="container not found") from exc
+        except RuntimeActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.post("/api/containers/{container_id}/start")
+    def start_container(container_id: str) -> dict[str, Any]:
+        return container_lifecycle_action(container_id, "start")
+
+    @app.post("/api/containers/{container_id}/stop")
+    def stop_container(container_id: str) -> dict[str, Any]:
+        return container_lifecycle_action(container_id, "stop")
+
+    @app.post("/api/containers/{container_id}/restart")
+    def restart_container(container_id: str) -> dict[str, Any]:
+        return container_lifecycle_action(container_id, "restart")
+
+    @app.delete("/api/containers/{container_id}")
+    def remove_container(container_id: str) -> dict[str, Any]:
+        try:
+            identity = lifecycle.remove_container(container_id)
+        except ContainerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="container not found") from exc
+        except RuntimeActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"deleted": True, **identity}
+
+    def compose_lifecycle_action(
+        project_name: str,
+        action: str,
+    ) -> dict[str, Any]:
+        try:
+            project = getattr(
+                lifecycle,
+                f"{action}_compose_project",
+            )(project_name)
+        except RuntimeResourceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="compose project not found") from exc
+        except RuntimeActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "item": {
+                "name": project.name,
+                "status": project.status,
+                "running": project.running,
+                "container_count": project.container_count,
+                "running_containers": project.running_containers,
+            }
+        }
+
+    @app.post("/api/compose-projects/{project_name}/start")
+    def start_compose_project(project_name: str) -> dict[str, Any]:
+        return compose_lifecycle_action(project_name, "start")
+
+    @app.post("/api/compose-projects/{project_name}/stop")
+    def stop_compose_project(project_name: str) -> dict[str, Any]:
+        return compose_lifecycle_action(project_name, "stop")
+
+    @app.post("/api/compose-projects/{project_name}/restart")
+    def restart_compose_project(project_name: str) -> dict[str, Any]:
+        return compose_lifecycle_action(project_name, "restart")
+
+    @app.delete("/api/compose-projects/{project_name}")
+    def remove_compose_project(project_name: str) -> dict[str, Any]:
+        try:
+            identity = lifecycle.remove_compose_project(project_name)
+        except RuntimeResourceNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="compose project not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"deleted": True, **identity}
 
     @app.get("/api/compose-projects/{project_name}/containers/{container_id}/logs")
     def get_compose_logs(

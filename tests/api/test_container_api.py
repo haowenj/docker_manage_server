@@ -17,12 +17,16 @@ class ContainerApiRuntime:
     def __init__(self):
         self.last_logs_container = None
         self.last_terminal_container = None
+        self.lifecycle_calls = []
+        self.direct_running = True
+        self.mall_running = True
+        self.mall_exists = True
 
     def ping(self):
         return True
 
     def list_containers(self):
-        return [
+        items = [
             {
                 "id": "abc",
                 "short_id": "abc",
@@ -32,6 +36,40 @@ class ContainerApiRuntime:
                 "raw_attrs": {"State": {"Running": True}},
             }
         ]
+        if self.direct_running is not None:
+            items.append(
+                {
+                    "id": "sha256:direct-immutable-id",
+                    "short_id": "direct",
+                    "name": "direct",
+                    "image": "demo:latest",
+                    "running": self.direct_running,
+                    "status": "running" if self.direct_running else "exited",
+                    "labels": {},
+                    "ports": {},
+                    "mounts": [],
+                    "networks": {},
+                }
+            )
+        if self.mall_exists:
+            items.append(
+                {
+                    "id": "sha256:mall-web-immutable-id",
+                    "short_id": "mall-web",
+                    "name": "mall-web",
+                    "image": "mall/web:latest",
+                    "running": self.mall_running,
+                    "status": "running" if self.mall_running else "exited",
+                    "labels": {
+                        "com.docker.compose.project": "mall",
+                        "com.docker.compose.service": "web",
+                    },
+                    "ports": {},
+                    "mounts": [],
+                    "networks": {},
+                }
+            )
+        return items
 
     def logs(self, container_id, tail="all", timestamps=False):
         self.last_logs_container = container_id
@@ -41,14 +79,25 @@ class ContainerApiRuntime:
         return object()
 
     def get_serialized_container(self, container_id):
-        if container_id == "mall-web":
+        if container_id in ("mall-web", "sha256:mall-web-immutable-id"):
+            if not self.mall_exists:
+                raise ContainerNotFoundError(container_id)
             return {
                 "id": "sha256:mall-web-immutable-id",
                 "labels": {
                     "com.docker.compose.project": "mall",
                     "com.docker.compose.service": "web",
                 },
-                "running": True,
+                "running": self.mall_running,
+            }
+        if container_id in ("direct", "sha256:direct-immutable-id"):
+            if self.direct_running is None:
+                raise ContainerNotFoundError(container_id)
+            return {
+                "id": "sha256:direct-immutable-id",
+                "name": "direct",
+                "labels": {},
+                "running": self.direct_running,
             }
         if container_id == "stopped":
             return {
@@ -59,7 +108,40 @@ class ContainerApiRuntime:
         raise ContainerNotFoundError(container_id)
 
     def list_compose_projects(self):
-        return (ComposeProjectRecord("mall", "running(1)", ()),)
+        if not self.mall_exists:
+            return ()
+        status = "running(1)" if self.mall_running else "exited(1)"
+        return (ComposeProjectRecord("mall", status, ()),)
+
+    def start_container(self, container_id):
+        self.lifecycle_calls.append(("start_container", container_id))
+        self.direct_running = True
+
+    def stop_container(self, container_id):
+        self.lifecycle_calls.append(("stop_container", container_id))
+        self.direct_running = False
+
+    def restart_container(self, container_id):
+        self.lifecycle_calls.append(("restart_container", container_id))
+
+    def remove_container(self, container_id):
+        self.lifecycle_calls.append(("remove_container", container_id))
+        self.direct_running = None
+
+    def start_compose_project(self, project_name):
+        self.lifecycle_calls.append(("start_compose_project", project_name))
+        self.mall_running = True
+
+    def stop_compose_project(self, project_name):
+        self.lifecycle_calls.append(("stop_compose_project", project_name))
+        self.mall_running = False
+
+    def restart_compose_project(self, project_name):
+        self.lifecycle_calls.append(("restart_compose_project", project_name))
+
+    def remove_compose_project(self, project_name):
+        self.lifecycle_calls.append(("remove_compose_project", project_name))
+        self.mall_exists = False
 
     def create_terminal(self, container_id, command):
         self.last_terminal_container = container_id
@@ -132,3 +214,56 @@ def test_compose_terminal_uses_validated_immutable_container_id(client):
     assert client.app.state.test_runtime.last_terminal_container == (
         "sha256:mall-web-immutable-id"
     )
+
+
+def test_container_lifecycle_api_uses_immutable_id_and_explicit_methods(client):
+    stopped = client.post("/api/containers/direct/stop")
+    started = client.post("/api/containers/direct/start")
+    restarted = client.post("/api/containers/direct/restart")
+    stopped_again = client.post("/api/containers/direct/stop")
+    removed = client.delete("/api/containers/direct")
+
+    assert [
+        response.status_code
+        for response in (stopped, started, restarted, stopped_again, removed)
+    ] == [200, 200, 200, 200, 200]
+    assert client.app.state.test_runtime.lifecycle_calls == [
+        ("stop_container", "sha256:direct-immutable-id"),
+        ("start_container", "sha256:direct-immutable-id"),
+        ("restart_container", "sha256:direct-immutable-id"),
+        ("stop_container", "sha256:direct-immutable-id"),
+        ("remove_container", "sha256:direct-immutable-id"),
+    ]
+    assert removed.json()["deleted"] is True
+
+
+def test_container_lifecycle_api_rejects_state_and_compose_ownership(client):
+    assert client.delete("/api/containers/direct").status_code == 409
+    assert client.post("/api/containers/stopped/stop").status_code == 409
+    assert client.post("/api/containers/mall-web/stop").status_code == 404
+
+
+def test_compose_lifecycle_api_uses_explicit_project_actions(client):
+    stopped = client.post("/api/compose-projects/mall/stop")
+    started = client.post("/api/compose-projects/mall/start")
+    restarted = client.post("/api/compose-projects/mall/restart")
+    removed = client.delete("/api/compose-projects/mall")
+
+    assert [response.status_code for response in (stopped, started, restarted, removed)] == [
+        200,
+        200,
+        200,
+        200,
+    ]
+    assert client.app.state.test_runtime.lifecycle_calls[-4:] == [
+        ("stop_compose_project", "mall"),
+        ("start_compose_project", "mall"),
+        ("restart_compose_project", "mall"),
+        ("remove_compose_project", "mall"),
+    ]
+    assert removed.json() == {"deleted": True, "name": "mall"}
+
+
+def test_compose_lifecycle_api_rejects_state_and_missing_project(client):
+    assert client.post("/api/compose-projects/mall/start").status_code == 409
+    assert client.post("/api/compose-projects/missing/stop").status_code == 404
