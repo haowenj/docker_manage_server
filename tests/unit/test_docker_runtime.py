@@ -2,11 +2,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from docker.errors import DockerException
 
 from docker_manage_server.docker_runtime import (
     ComposeListError,
     ComposeProjectRecord,
     DockerRuntime,
+    DockerRuntimeError,
 )
 
 
@@ -27,6 +29,15 @@ def test_list_containers_returns_ps_fields_and_raw_attrs():
     assert result[0]["id"] == "abc"
     assert result[0]["running"] is True
     assert result[0]["raw_attrs"] == raw
+
+
+def test_list_containers_maps_docker_sdk_failure():
+    def fail(**_kwargs):
+        raise DockerException("daemon offline")
+
+    client = SimpleNamespace(containers=SimpleNamespace(list=fail))
+    with pytest.raises(DockerRuntimeError, match="daemon offline"):
+        DockerRuntime(client=client).list_containers()
 
 
 def test_compose_up_uses_fixed_directory_and_no_shell(tmp_path):

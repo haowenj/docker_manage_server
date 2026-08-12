@@ -64,7 +64,11 @@ class DockerRuntime:
             return False
 
     def list_containers(self) -> list[dict[str, Any]]:
-        return [self._serialize_container(container) for container in self.client.containers.list(all=True)]
+        try:
+            containers = self.client.containers.list(all=True)
+        except DockerException as exc:
+            raise DockerRuntimeError(str(exc)) from exc
+        return [self._serialize_container(container) for container in containers]
 
     def list_compose_projects(self) -> tuple[ComposeProjectRecord, ...]:
         try:
@@ -105,6 +109,9 @@ class DockerRuntime:
             raise ContainerNotFoundError(container_id) from exc
         except APIError as exc:
             raise DockerRuntimeError(str(exc)) from exc
+
+    def get_serialized_container(self, container_id: str) -> dict[str, Any]:
+        return self._serialize_container(self.get_container(container_id))
 
     def logs(self, container_id: str, tail: str = "all", timestamps: bool = False) -> bytes:
         container = self.get_container(container_id)
