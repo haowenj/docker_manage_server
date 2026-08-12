@@ -5,6 +5,13 @@
     <h2>{{ container.name }}</h2>
     <div class="container-heading-actions">
       <span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span>
+      {% if container.running %}
+      <form method="post" action="/containers/{{ container.item.id }}/stop" data-confirm="确认停止此独立容器？"><button class="button button-secondary" type="submit">停止</button></form>
+      <form method="post" action="/containers/{{ container.item.id }}/restart" data-confirm="确认重启此独立容器？"><button class="button button-secondary" type="submit">重启</button></form>
+      {% else %}
+      <form method="post" action="/containers/{{ container.item.id }}/start"><button class="button button-primary" type="submit">启动</button></form>
+      <form method="post" action="/containers/{{ container.item.id }}/delete" data-confirm="确认删除此已停止的独立容器？该操作不可恢复。"><button class="button button-danger" type="submit">删除</button></form>
+      {% endif %}
       <a class="button button-secondary" href="/containers/{{ container.item.id }}/logs" target="_blank" rel="noopener" aria-label="查看 {{ container.name }} 日志（新标签页）">查看日志</a>
       <a class="button button-primary" href="/containers/{{ container.item.id }}/terminal" target="_blank" rel="noopener" aria-label="连接 {{ container.name }} 终端（新标签页）">连接终端</a>
     </div>

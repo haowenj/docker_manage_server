@@ -26,6 +26,11 @@ from .docker_runtime import ContainerNotFoundError, DockerRuntime, DockerRuntime
 from .models import DirectoryRule
 from .storage import TaskStore
 from .runtime_inventory import RuntimeInventoryService
+from .runtime_lifecycle import (
+    RuntimeActionConflictError,
+    RuntimeLifecycleService,
+    RuntimeResourceNotFoundError,
+)
 from .web_views import (
     compose_project_view,
     container_view,
@@ -187,6 +192,7 @@ def create_web_router(
     deployment: DeploymentService,
     runtime: DockerRuntime,
     inventory: RuntimeInventoryService,
+    lifecycle: RuntimeLifecycleService,
 ) -> APIRouter:
     router = APIRouter(include_in_schema=False)
 
@@ -401,6 +407,94 @@ def create_web_router(
     def container_terminal(request: Request, container_id: str):
         return _container_page(
             request, inventory, container_id, "containers/terminal.html"
+        )
+
+    def container_action(
+        request: Request,
+        container_id: str,
+        action: str,
+        *,
+        deleted: bool = False,
+    ):
+        try:
+            getattr(lifecycle, f"{action}_container")(container_id)
+        except ContainerNotFoundError:
+            return _web_error(request, 404, "找不到容器", container_id)
+        except RuntimeActionConflictError as exc:
+            return _web_error(request, 409, "容器当前状态不允许操作", str(exc))
+        except DockerRuntimeError as exc:
+            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+        location = "/runtime" if deleted else f"/containers/{container_id}"
+        return RedirectResponse(location, status_code=303)
+
+    @router.post("/containers/{container_id}/start")
+    def start_container(request: Request, container_id: str):
+        return container_action(request, container_id, "start")
+
+    @router.post("/containers/{container_id}/stop")
+    def stop_container(request: Request, container_id: str):
+        return container_action(request, container_id, "stop")
+
+    @router.post("/containers/{container_id}/restart")
+    def restart_container(request: Request, container_id: str):
+        return container_action(request, container_id, "restart")
+
+    @router.post("/containers/{container_id}/delete")
+    def remove_container(request: Request, container_id: str):
+        return container_action(
+            request,
+            container_id,
+            "remove",
+            deleted=True,
+        )
+
+    def compose_action(
+        request: Request,
+        project_name: str,
+        action: str,
+        *,
+        deleted: bool = False,
+    ):
+        try:
+            getattr(lifecycle, f"{action}_compose_project")(project_name)
+        except RuntimeResourceNotFoundError:
+            return _web_error(
+                request,
+                404,
+                "找不到 Compose 项目",
+                project_name,
+            )
+        except RuntimeActionConflictError as exc:
+            return _web_error(
+                request,
+                409,
+                "Compose 项目当前状态不允许操作",
+                str(exc),
+            )
+        except DockerRuntimeError as exc:
+            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+        location = "/runtime" if deleted else f"/compose-projects/{project_name}"
+        return RedirectResponse(location, status_code=303)
+
+    @router.post("/compose-projects/{project_name}/start")
+    def start_compose_project(request: Request, project_name: str):
+        return compose_action(request, project_name, "start")
+
+    @router.post("/compose-projects/{project_name}/stop")
+    def stop_compose_project(request: Request, project_name: str):
+        return compose_action(request, project_name, "stop")
+
+    @router.post("/compose-projects/{project_name}/restart")
+    def restart_compose_project(request: Request, project_name: str):
+        return compose_action(request, project_name, "restart")
+
+    @router.post("/compose-projects/{project_name}/delete")
+    def remove_compose_project(request: Request, project_name: str):
+        return compose_action(
+            request,
+            project_name,
+            "remove",
+            deleted=True,
         )
 
     @router.get(

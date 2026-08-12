@@ -60,3 +60,17 @@ def test_cross_origin_compose_terminal_is_rejected(web_context):
         ):
             pass
     assert captured.value.code == 1008
+
+
+def test_cross_origin_runtime_actions_are_rejected(web_context):
+    client, _store, runtime = web_context
+    for path in (
+        "/containers/abc123/stop",
+        "/compose-projects/mall/stop",
+    ):
+        response = client.post(
+            path,
+            headers={"Origin": "https://evil.example"},
+        )
+        assert response.status_code == 403
+    assert runtime.lifecycle_calls == []

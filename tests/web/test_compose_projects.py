@@ -45,8 +45,61 @@ def test_compose_project_detail_renders_container_dialog_and_tools(web_context):
     assert 'href="/containers/mall-web"' not in response.text
     assert "<script>alert(1)</script>" not in response.text
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
-    for action in ("启动", "停止", "重启", "删除"):
-        assert action not in response.text
+    dialog = response.text.split('<dialog id="container-dialog-mall-web"', 1)[1]
+    for action in ("/containers/mall-web/start", "/containers/mall-web/stop"):
+        assert action not in dialog
+
+
+def test_running_compose_detail_shows_stop_restart_delete(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "running(1)", ()),
+    )
+    runtime.containers = [compose_container_fixture()]
+    response = client.get("/compose-projects/mall")
+    for action in ("stop", "restart", "delete"):
+        assert f'action="/compose-projects/mall/{action}"' in response.text
+    assert 'action="/compose-projects/mall/start"' not in response.text
+    assert "保留命名卷和数据" in response.text
+
+
+def test_stopped_compose_detail_shows_start_delete(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "exited(1)", ()),
+    )
+    runtime.containers = [compose_container_fixture(running=False)]
+    response = client.get("/compose-projects/mall")
+    assert 'action="/compose-projects/mall/start"' in response.text
+    assert 'action="/compose-projects/mall/delete"' in response.text
+    assert 'action="/compose-projects/mall/stop"' not in response.text
+    assert 'action="/compose-projects/mall/restart"' not in response.text
+
+
+def test_compose_web_actions_redirect_to_detail_or_runtime(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "running(1)", ()),
+    )
+    runtime.containers = [compose_container_fixture()]
+    stopped = client.post(
+        "/compose-projects/mall/stop", follow_redirects=False
+    )
+    started = client.post(
+        "/compose-projects/mall/start", follow_redirects=False
+    )
+    restarted = client.post(
+        "/compose-projects/mall/restart", follow_redirects=False
+    )
+    deleted = client.post(
+        "/compose-projects/mall/delete", follow_redirects=False
+    )
+    assert stopped.status_code == 303
+    assert stopped.headers["location"] == "/compose-projects/mall"
+    assert started.status_code == 303
+    assert restarted.status_code == 303
+    assert deleted.status_code == 303
+    assert deleted.headers["location"] == "/runtime"
 
 
 def test_compose_project_detail_allows_empty_stopped_project(web_context):

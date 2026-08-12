@@ -67,6 +67,7 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
 .stack { display: grid; gap: 12px; }
 .error-panel { max-width: 760px; }
 .container-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.container-heading-actions form { display: inline-flex; margin: 0; }
 .container-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .container-dialog { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px); padding: 20px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
 .container-dialog::backdrop { background: rgb(15 23 42 / 45%); }

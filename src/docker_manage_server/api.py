@@ -98,7 +98,9 @@ def create_app(
         return response
 
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
-    app.include_router(create_web_router(store, deployment, runtime, inventory))
+    app.include_router(
+        create_web_router(store, deployment, runtime, inventory, lifecycle)
+    )
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:

@@ -21,6 +21,7 @@ class WebFakeRuntime:
         self.compose_config_stderr = b""
         self.compose_error = None
         self.compose_projects = ()
+        self.lifecycle_calls = []
         self.containers = [
             {
                 "id": "abc123",
@@ -54,9 +55,70 @@ class WebFakeRuntime:
 
     def get_serialized_container(self, container_id):
         for item in self.containers:
-            if item["id"] == container_id:
+            if item["id"] == container_id or item.get("name") == container_id:
                 return item
         raise ContainerNotFoundError(container_id)
+
+    def start_container(self, container_id):
+        self.lifecycle_calls.append(("start_container", container_id))
+        self._set_container_running(container_id, True)
+
+    def stop_container(self, container_id):
+        self.lifecycle_calls.append(("stop_container", container_id))
+        self._set_container_running(container_id, False)
+
+    def restart_container(self, container_id):
+        self.lifecycle_calls.append(("restart_container", container_id))
+
+    def remove_container(self, container_id):
+        self.lifecycle_calls.append(("remove_container", container_id))
+        self.containers = [item for item in self.containers if item["id"] != container_id]
+
+    def start_compose_project(self, project_name):
+        self.lifecycle_calls.append(("start_compose_project", project_name))
+        self._set_compose_running(project_name, True)
+
+    def stop_compose_project(self, project_name):
+        self.lifecycle_calls.append(("stop_compose_project", project_name))
+        self._set_compose_running(project_name, False)
+
+    def restart_compose_project(self, project_name):
+        self.lifecycle_calls.append(("restart_compose_project", project_name))
+
+    def remove_compose_project(self, project_name):
+        self.lifecycle_calls.append(("remove_compose_project", project_name))
+        self.compose_projects = tuple(
+            item for item in self.compose_projects if item.name != project_name
+        )
+        self.containers = [
+            item
+            for item in self.containers
+            if item.get("labels", {}).get("com.docker.compose.project")
+            != project_name
+        ]
+
+    def _set_container_running(self, container_id, running):
+        item = next(item for item in self.containers if item["id"] == container_id)
+        item["running"] = running
+        item["status"] = "running" if running else "exited"
+
+    def _set_compose_running(self, project_name, running):
+        from docker_manage_server.docker_runtime import ComposeProjectRecord
+
+        status = "running(1)" if running else "exited(1)"
+        self.compose_projects = tuple(
+            ComposeProjectRecord(item.name, status, item.config_files)
+            if item.name == project_name
+            else item
+            for item in self.compose_projects
+        )
+        for item in self.containers:
+            if (
+                item.get("labels", {}).get("com.docker.compose.project")
+                == project_name
+            ):
+                item["running"] = running
+                item["status"] = "running" if running else "exited"
 
     def get_container(self, container_id):
         return SimpleNamespace(id=container_id, attrs={})
