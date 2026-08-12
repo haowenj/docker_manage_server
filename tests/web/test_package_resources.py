@@ -58,6 +58,22 @@ def test_compose_dialog_script_uses_id_without_css_escape():
     assert "CSS.escape" not in script
 
 
+def test_image_delete_dialog_uses_same_origin_api_and_safe_dom_updates():
+    script = (
+        files("docker_manage_server")
+        .joinpath("static/js/app.js")
+        .read_text(encoding="utf-8")
+    )
+    assert 'document.querySelectorAll("[data-image-delete-dialog]")' in script
+    assert 'method: "DELETE"' in script
+    assert "dialog.dataset.deleteUrl" in script
+    assert "dialog.dataset.detailUrl" in script
+    assert "response.ok" in script
+    assert "replaceChildren" in script
+    assert "textContent" in script
+    assert "innerHTML" not in script
+
+
 def test_runtime_templates_are_packaged():
     package = files("docker_manage_server")
     for path in (

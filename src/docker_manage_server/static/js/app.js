@@ -18,6 +18,102 @@ document.querySelectorAll("[data-container-dialog]").forEach((dialog) => {
   });
 });
 
+const renderTextList = (list, values, emptyText = "无") => {
+  const items = values.length ? values : [emptyText];
+  list.replaceChildren(...items.map((value) => {
+    const row = document.createElement("li");
+    const code = document.createElement("code");
+    code.textContent = value;
+    row.appendChild(code);
+    return row;
+  }));
+};
+
+const renderImageNames = (item) => {
+  const title = document.querySelector("[data-image-title]");
+  const list = document.querySelector("[data-image-name-list]");
+  if (!title || !list) return;
+
+  const names = item.tags.length ? item.tags : [item.short_id];
+  title.textContent = names[0];
+  list.replaceChildren(...names.map((name) => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = name;
+    return tag;
+  }));
+  if (!item.tags.length) {
+    const marker = document.createElement("span");
+    marker.className = "muted";
+    marker.textContent = "未标记";
+    list.appendChild(marker);
+  }
+};
+
+document.querySelectorAll("[data-image-delete-dialog]").forEach((dialog) => {
+  const form = dialog.querySelector("[data-image-delete-form]");
+  const submit = dialog.querySelector("[data-image-delete-submit]");
+  const preview = dialog.querySelector("[data-image-delete-preview]");
+  const resultPanel = dialog.querySelector("[data-image-delete-result]");
+  const errorPanel = dialog.querySelector("[data-image-delete-error]");
+  const imageStatus = dialog.querySelector("[data-image-exists-status]");
+  const listLink = dialog.querySelector("[data-image-list-link]");
+
+  dialog.querySelector("[data-dialog-close]")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    errorPanel.hidden = true;
+    errorPanel.textContent = "";
+
+    try {
+      const response = await fetch(dialog.dataset.deleteUrl, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+
+      renderTextList(dialog.querySelector("[data-deleted-tags]"), payload.deleted_tags);
+      renderTextList(dialog.querySelector("[data-retained-tags]"), payload.retained_tags);
+      renderTextList(dialog.querySelector("[data-skipped-tags]"), payload.skipped_tags);
+      preview.hidden = true;
+      form.hidden = true;
+      resultPanel.hidden = false;
+      document.querySelector("[data-image-delete-open]")?.setAttribute("hidden", "");
+
+      if (!payload.image_exists) {
+        imageStatus.textContent = "镜像已不存在。";
+        listLink.hidden = false;
+        return;
+      }
+
+      imageStatus.textContent = "镜像仍存在，名称已同步。";
+      try {
+        const detailResponse = await fetch(dialog.dataset.detailUrl, {
+          headers: { Accept: "application/json" },
+        });
+        const detail = await detailResponse.json().catch(() => ({}));
+        if (!detailResponse.ok) {
+          throw new Error(detail.detail || `HTTP ${detailResponse.status}`);
+        }
+        renderImageNames(detail.item);
+      } catch (_error) {
+        errorPanel.textContent = "删除已完成，但详情同步失败，请手动刷新。";
+        errorPanel.hidden = false;
+      }
+    } catch (error) {
+      errorPanel.textContent = `删除失败：${error.message}`;
+      errorPanel.hidden = false;
+      submit.disabled = false;
+    }
+  });
+});
+
 const autoOpenContainer = document.querySelector("[data-auto-open-dialog]");
 const autoOpenDialogId = autoOpenContainer?.dataset.autoOpenDialog;
 if (autoOpenDialogId) {
