@@ -24,3 +24,12 @@ def test_deployment_editor_assets_are_packaged():
     assert package.joinpath("templates/deployments/edit.html").is_file()
     script = package.joinpath("static/js/app.js").read_text(encoding="utf-8")
     assert "data-directory-editor" in script
+
+
+def test_runtime_templates_are_packaged():
+    package = files("docker_manage_server")
+    for path in (
+        "templates/runtime/list.html",
+        "templates/compose_projects/detail.html",
+    ):
+        assert package.joinpath(path).is_file()

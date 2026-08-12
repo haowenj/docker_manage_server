@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+{% set project = compose_project.project %}
+<section class="panel">
+  <div class="panel-heading"><h2>{{ project.name }}</h2><span class="status {{ 'status-running' if compose_project.running else 'status-stopped' }}">{{ compose_project.status_label }}</span></div>
+  <dl class="definition-grid">
+    <dt>项目名称</dt><dd>{{ project.name }}</dd>
+    <dt>项目状态</dt><dd>{{ compose_project.status_label }}</dd>
+    <dt>运行容器</dt><dd>{{ compose_project.running_containers }}/{{ compose_project.container_count }}</dd>
+    <dt>配置文件</dt><dd>{% for path in project.config_files %}{{ path }}{% if not loop.last %}<br>{% endif %}{% else %}—{% endfor %}</dd>
+  </dl>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>项目容器</h2><span class="muted">{{ compose_project.container_count }} 个</span></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>名称</th><th>服务</th><th>镜像</th><th>状态</th><th>查看</th></tr></thead>
+    <tbody>
+    {% for container in compose_project.containers %}
+      <tr>
+        <td>{{ container.name }}</td><td>{{ container.compose_service }}</td><td>{{ container.image }}</td>
+        <td><span class="status {{ 'status-running' if container.running else 'status-stopped' }}">{{ container.status_label }}</span></td>
+        <td class="container-actions">
+          <button class="button button-secondary" type="button" data-dialog-open="container-{{ container.item.id }}">查看详情</button>
+          <a class="button button-secondary" href="/compose-projects/{{ project.name }}/containers/{{ container.item.id }}/logs" target="_blank" rel="noopener">查看日志</a>
+          <a class="button button-primary" href="/compose-projects/{{ project.name }}/containers/{{ container.item.id }}/terminal" target="_blank" rel="noopener">进入终端</a>
+        </td>
+      </tr>
+    {% else %}<tr><td colspan="5" class="empty-cell">暂无容器。</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% for container in compose_project.containers %}
+<dialog class="container-dialog" data-container-dialog="container-{{ container.item.id }}">
+  <div class="dialog-heading"><h2>{{ container.name }}</h2><button class="button button-secondary" type="button" data-dialog-close>关闭</button></div>
+  <dl class="definition-grid">
+    <dt>Compose 服务</dt><dd>{{ container.compose_service }}</dd><dt>镜像</dt><dd>{{ container.image }}</dd><dt>状态</dt><dd>{{ container.status_label }}</dd><dt>端口</dt><dd>{{ container.ports_text }}</dd>
+  </dl>
+  <section class="dialog-section"><h3>挂载</h3><pre>{% for mount in container.item.mounts %}{{ mount.Source or "—" }} → {{ mount.Destination or "—" }} ({{ mount.Type or "unknown" }})
+{% else %}暂无挂载{% endfor %}</pre></section>
+  <section class="dialog-section"><h3>网络</h3><pre>{% for name, network in container.item.networks.items() %}{{ name }}  {{ network.IPAddress or "—" }}
+{% else %}暂无网络{% endfor %}</pre></section>
+  <section class="dialog-section"><h3>标签</h3><pre>{% for key, value in container.item.labels|dictsort %}{{ key }}={{ value }}
+{% else %}暂无标签{% endfor %}</pre></section>
+</dialog>
+{% endfor %}
+{% endblock %}

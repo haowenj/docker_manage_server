@@ -67,6 +67,12 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
 .stack { display: grid; gap: 12px; }
 .error-panel { max-width: 760px; }
 .container-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.container-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.container-dialog { width: min(760px, calc(100% - 32px)); max-height: calc(100vh - 48px); padding: 20px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.container-dialog::backdrop { background: rgb(15 23 42 / 45%); }
+.dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.dialog-heading h2, .dialog-section h3 { margin: 0; }
+.dialog-section { margin-top: 18px; }
 .tool-page-panel { display: flex; min-height: 0; flex-direction: column; }
 .log-output-viewport, .terminal-viewport { width: 100%; height: clamp(320px, 58vh, 720px); min-height: 0; }
 .log-output-viewport { overflow: auto; margin-bottom: 0; }
@@ -98,6 +104,7 @@ pre { max-width: 100%; margin: 12px 0 0; padding: 14px; color: #1e293b; backgrou
   .table-scroll { overflow-x: auto; }
   .page-actions, .panel-heading, .toolbar { align-items: flex-start; flex-direction: column; }
   .container-heading-actions { width: 100%; justify-content: flex-start; }
+  .dialog-heading { align-items: flex-start; flex-wrap: wrap; }
   .log-output-viewport, .terminal-viewport { height: clamp(280px, 52vh, 520px); }
   .definition-grid { grid-template-columns: 1fr; gap: 4px; }
   .definition-grid dd { margin-bottom: 10px; }

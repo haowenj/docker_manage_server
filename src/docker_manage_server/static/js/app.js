@@ -4,6 +4,22 @@ document.querySelectorAll("form[data-confirm]").forEach((element) => {
   });
 });
 
+document.querySelectorAll("[data-dialog-open]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const dialog = document.querySelector(
+      `[data-container-dialog="${CSS.escape(button.dataset.dialogOpen)}"]`,
+    );
+    if (dialog) dialog.showModal();
+  });
+});
+
+document.querySelectorAll("[data-container-dialog]").forEach((dialog) => {
+  dialog.querySelector("[data-dialog-close]")?.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+});
+
 document.querySelectorAll("[data-directory-editor]").forEach((editor) => {
   const list = editor.querySelector("[data-directory-list]");
   const template = editor.querySelector("[data-directory-row-template]");

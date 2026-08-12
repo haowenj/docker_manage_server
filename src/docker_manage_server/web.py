@@ -332,6 +332,24 @@ def create_web_router(
     def legacy_container_list():
         return RedirectResponse("/runtime", status_code=307)
 
+    @router.get("/compose-projects/{project_name}", response_class=HTMLResponse)
+    def compose_project_detail(request: Request, project_name: str):
+        try:
+            project = inventory.find_project(project_name)
+        except DockerRuntimeError as exc:
+            return _web_error(request, 503, "Docker daemon 不可用", str(exc))
+        if project is None:
+            return _web_error(request, 404, "找不到 Compose 项目", project_name)
+        return templates.TemplateResponse(
+            request=request,
+            name="compose_projects/detail.html",
+            context={
+                "page_title": project.name,
+                "active_nav": "runtime",
+                "compose_project": compose_project_view(project),
+            },
+        )
+
     @router.get("/containers/{container_id}", response_class=HTMLResponse)
     def container_detail(request: Request, container_id: str):
         return _container_page(

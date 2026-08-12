@@ -1,0 +1,65 @@
+from docker_manage_server.docker_runtime import ComposeProjectRecord
+
+
+def compose_container_fixture(project="mall", container_id="mall-web", running=True):
+    return {
+        "id": container_id,
+        "short_id": container_id,
+        "name": container_id,
+        "image": "mall/web:1",
+        "created": "2026-08-01T00:00:00Z",
+        "status": "running" if running else "exited",
+        "running": running,
+        "ports": {"8000/tcp": [{"HostPort": "6308"}]},
+        "labels": {
+            "com.docker.compose.project": project,
+            "com.docker.compose.service": "web",
+            "unsafe": "<script>alert(1)</script>",
+        },
+        "mounts": [
+            {"Source": "/srv/data", "Destination": "/data", "Type": "bind"}
+        ],
+        "networks": {"mall_default": {"IPAddress": "172.20.0.2"}},
+    }
+
+
+def test_compose_project_detail_renders_container_dialog_and_tools(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("mall", "running(1)", ("/srv/mall/compose.yaml",)),
+    )
+    runtime.containers = [compose_container_fixture()]
+
+    response = client.get("/compose-projects/mall")
+
+    assert response.status_code == 200
+    assert "mall-web" in response.text
+    assert "web" in response.text
+    assert 'data-dialog-open="container-mall-web"' in response.text
+    assert 'data-container-dialog="container-mall-web"' in response.text
+    assert 'href="/compose-projects/mall/containers/mall-web/logs"' in response.text
+    assert 'href="/compose-projects/mall/containers/mall-web/terminal"' in response.text
+    assert 'href="/containers/mall-web"' not in response.text
+    assert "<script>alert(1)</script>" not in response.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in response.text
+    for action in ("启动", "停止", "重启", "删除"):
+        assert action not in response.text
+
+
+def test_compose_project_detail_allows_empty_stopped_project(web_context):
+    client, _store, runtime = web_context
+    runtime.compose_projects = (
+        ComposeProjectRecord("empty", "exited(0)", ("/srv/empty/compose.yaml",)),
+    )
+
+    response = client.get("/compose-projects/empty")
+
+    assert response.status_code == 200
+    assert "暂无容器" in response.text
+
+
+def test_unknown_compose_project_returns_404(web_context):
+    client, _store, _runtime = web_context
+    response = client.get("/compose-projects/missing")
+    assert response.status_code == 404
+    assert "找不到 Compose 项目" in response.text
