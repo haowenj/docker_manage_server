@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from .deployment_config import can_edit_task, can_retry_task
 from .models import DeploymentTask, TaskStatus
 from .runtime_inventory import ComposeProject, RuntimeOverview
+from .image_inventory import ImageContainerReference, ImageSummary
 
 
 STATUS_LABELS = {
@@ -56,6 +58,27 @@ def compose_project_view(project: ComposeProject) -> dict[str, Any]:
     }
 
 
+def image_summary_view(item: ImageSummary) -> dict[str, Any]:
+    return {
+        "item": item,
+        "tags": item.tags or ("未标记",),
+        "created": _format_docker_time(item.created),
+        "size": _format_bytes(item.size),
+        "entrypoint": _format_command(item.entrypoint),
+        "command": _format_command(item.command),
+    }
+
+
+def image_reference_view(item: ImageContainerReference) -> dict[str, Any]:
+    container_id = quote(item.id, safe="")
+    if item.compose_project:
+        project = quote(item.compose_project, safe="")
+        href = f"/compose-projects/{project}?container={container_id}"
+    else:
+        href = f"/containers/{container_id}"
+    return {"item": item, "href": href}
+
+
 def runtime_metrics(
     tasks: Sequence[DeploymentTask],
     overview: RuntimeOverview,
@@ -93,3 +116,32 @@ def _format_ports(value: object) -> str:
         )
         rendered.append(f"{hosts} → {container_port}")
     return "; ".join(rendered)
+
+
+def _format_docker_time(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_bytes(value: int) -> str:
+    amount = float(value)
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            rendered = (
+                f"{amount:.1f}" if unit != "B" else str(int(amount))
+            )
+            return f"{rendered} {unit}"
+        amount /= 1024
+    return f"{value} B"
+
+
+def _format_command(value: object) -> str:
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(item) for item in value) or "—"
+    return str(value) if value not in (None, "") else "—"

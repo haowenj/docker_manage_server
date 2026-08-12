@@ -10,6 +10,7 @@ from docker_manage_server.config import Settings
 from docker_manage_server.docker_runtime import (
     ComposeListError,
     ContainerNotFoundError,
+    ImageNotFoundError,
 )
 from docker_manage_server.storage import TaskStore
 
@@ -22,6 +23,9 @@ class WebFakeRuntime:
         self.compose_error = None
         self.compose_projects = ()
         self.lifecycle_calls = []
+        self.images = []
+        self.image_remove_calls = []
+        self.image_error = None
         self.containers = [
             {
                 "id": "abc123",
@@ -52,6 +56,44 @@ class WebFakeRuntime:
         if self.compose_error:
             raise ComposeListError(self.compose_error)
         return self.compose_projects
+
+    def list_images(self):
+        if self.image_error:
+            from docker_manage_server.docker_runtime import DockerRuntimeError
+
+            raise DockerRuntimeError(self.image_error)
+        return [dict(item) for item in self.images]
+
+    def get_serialized_image(self, reference):
+        if self.image_error:
+            from docker_manage_server.docker_runtime import DockerRuntimeError
+
+            raise DockerRuntimeError(self.image_error)
+        for item in self.images:
+            if reference in (
+                item["id"],
+                item.get("short_id"),
+                *item.get("tags", ()),
+            ):
+                return dict(item)
+        raise ImageNotFoundError(reference)
+
+    def remove_image(self, reference):
+        if self.image_error:
+            from docker_manage_server.docker_runtime import DockerRuntimeError
+
+            raise DockerRuntimeError(self.image_error)
+        self.image_remove_calls.append(reference)
+        for item in list(self.images):
+            if reference in item.get("tags", ()):
+                item["tags"].remove(reference)
+                if not item["tags"]:
+                    self.images.remove(item)
+                return
+            if reference == item["id"]:
+                self.images.remove(item)
+                return
+        raise ImageNotFoundError(reference)
 
     def get_serialized_container(self, container_id):
         for item in self.containers:

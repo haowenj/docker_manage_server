@@ -22,7 +22,12 @@ from .deployment_config import (
     can_edit_task,
     effective_directory_rules,
 )
-from .docker_runtime import ContainerNotFoundError, DockerRuntime, DockerRuntimeError
+from .docker_runtime import (
+    ContainerNotFoundError,
+    DockerRuntime,
+    DockerRuntimeError,
+    ImageNotFoundError,
+)
 from .models import DirectoryRule
 from .storage import TaskStore
 from .runtime_inventory import RuntimeInventoryService
@@ -31,10 +36,16 @@ from .runtime_lifecycle import (
     RuntimeLifecycleService,
     RuntimeResourceNotFoundError,
 )
-from .image_inventory import ImageInventoryService
+from .image_inventory import (
+    ImageInUseError,
+    ImageInventoryService,
+    InvalidImagePageError,
+)
 from .web_views import (
     compose_project_view,
     container_view,
+    image_reference_view,
+    image_summary_view,
     runtime_metrics,
     task_view,
 )
@@ -374,6 +385,77 @@ def create_web_router(
     @router.get("/containers")
     def legacy_container_list():
         return RedirectResponse("/runtime", status_code=307)
+
+    @router.get("/images", response_class=HTMLResponse)
+    def images_page(request: Request, q: str = "", page: str = "1"):
+        try:
+            result = images.list(q, page)
+        except InvalidImagePageError as exc:
+            return _web_error(request, 422, "页码无效", str(exc))
+        except DockerRuntimeError as exc:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", str(exc)
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="images/list.html",
+            context={
+                "page_title": "镜像管理",
+                "active_nav": "images",
+                "image_page": result,
+                "images": [
+                    image_summary_view(item) for item in result.items
+                ],
+            },
+        )
+
+    @router.get("/images/{image_id}", response_class=HTMLResponse)
+    def image_detail(request: Request, image_id: str):
+        try:
+            detail = images.get(image_id)
+        except ImageNotFoundError:
+            return _web_error(request, 404, "找不到镜像", image_id)
+        except DockerRuntimeError as exc:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", str(exc)
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="images/detail.html",
+            context={
+                "page_title": (
+                    detail.summary.tags[0]
+                    if detail.summary.tags
+                    else detail.summary.short_id
+                ),
+                "active_nav": "images",
+                "image": image_summary_view(detail.summary),
+                "inspect_json": json.dumps(
+                    detail.inspect,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ),
+                "containers": [
+                    image_reference_view(item)
+                    for item in detail.containers
+                ],
+            },
+        )
+
+    @router.post("/images/{image_id}/delete")
+    def remove_image(request: Request, image_id: str):
+        try:
+            images.remove(image_id)
+        except ImageNotFoundError:
+            return _web_error(request, 404, "找不到镜像", image_id)
+        except ImageInUseError as exc:
+            return _web_error(request, 409, "镜像正在使用中", str(exc))
+        except DockerRuntimeError as exc:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", str(exc)
+            )
+        return RedirectResponse("/images", status_code=303)
 
     @router.get("/compose-projects/{project_name}", response_class=HTMLResponse)
     def compose_project_detail(request: Request, project_name: str):
