@@ -234,8 +234,10 @@ def create_app(
         timestamps: bool = False,
     ) -> PlainTextResponse:
         try:
-            inventory.require_project_container(project_name, container_id)
-            output = runtime.logs(container_id, tail=tail, timestamps=timestamps)
+            container = inventory.require_project_container(project_name, container_id)
+            output = runtime.logs(
+                str(container["id"]), tail=tail, timestamps=timestamps
+            )
         except ContainerNotFoundError as exc:
             raise HTTPException(status_code=404, detail="container not found") from exc
         except DockerRuntimeError as exc:
@@ -252,7 +254,7 @@ def create_app(
             return
         await websocket.accept()
         try:
-            inventory.require_standalone_container(container_id)
+            container = inventory.require_standalone_container(container_id)
         except ContainerNotFoundError:
             await websocket.send_json({"error": "container_not_found"})
             await websocket.close(code=1008)
@@ -261,7 +263,7 @@ def create_app(
             await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
             await websocket.close(code=1011)
             return
-        await _serve_terminal(websocket, runtime, container_id, command)
+        await _serve_terminal(websocket, runtime, str(container["id"]), command)
 
     @app.websocket(
         "/api/compose-projects/{project_name}/containers/{container_id}/terminal"
@@ -279,7 +281,7 @@ def create_app(
             return
         await websocket.accept()
         try:
-            inventory.require_project_container(project_name, container_id)
+            container = inventory.require_project_container(project_name, container_id)
         except ContainerNotFoundError:
             await websocket.send_json({"error": "container_not_found"})
             await websocket.close(code=1008)
@@ -288,7 +290,7 @@ def create_app(
             await websocket.send_json({"error": "docker_runtime_error", "detail": str(exc)})
             await websocket.close(code=1011)
             return
-        await _serve_terminal(websocket, runtime, container_id, command)
+        await _serve_terminal(websocket, runtime, str(container["id"]), command)
 
     return app
 

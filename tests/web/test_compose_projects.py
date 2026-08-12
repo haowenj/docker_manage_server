@@ -37,6 +37,8 @@ def test_compose_project_detail_renders_container_dialog_and_tools(web_context):
     assert "web" in response.text
     assert 'data-dialog-open="container-mall-web"' in response.text
     assert 'data-container-dialog="container-mall-web"' in response.text
+    assert 'aria-labelledby="container-mall-web-title"' in response.text
+    assert 'id="container-mall-web-title"' in response.text
     assert 'href="/compose-projects/mall/containers/mall-web/logs"' in response.text
     assert 'href="/compose-projects/mall/containers/mall-web/terminal"' in response.text
     assert 'href="/containers/mall-web"' not in response.text
