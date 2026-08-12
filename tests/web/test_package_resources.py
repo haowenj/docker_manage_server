@@ -1,5 +1,26 @@
 from importlib.resources import files
 import json
+from pathlib import Path
+import tomllib
+
+
+def test_package_data_covers_every_template_directory():
+    project_root = Path(__file__).resolve().parents[2]
+    package_root = project_root / "src/docker_manage_server"
+    config = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    patterns = set(
+        config["tool"]["setuptools"]["package-data"]["docker_manage_server"]
+    )
+    template_directories = {
+        path.parent.relative_to(package_root).as_posix()
+        for path in package_root.glob("templates/**/*.html")
+    }
+
+    assert {
+        f"{directory}/*.html" for directory in template_directories
+    } <= patterns
 
 
 def test_vendored_terminal_resources_are_present_and_pinned():

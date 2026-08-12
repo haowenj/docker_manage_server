@@ -32,6 +32,7 @@ docker_manage_server = [
     "templates/containers/*.html",
     "templates/runtime/*.html",
     "templates/compose_projects/*.html",
+    "templates/images/*.html",
     "templates/errors/*.html",
     "static/css/*.css",
     "static/js/*.js",
