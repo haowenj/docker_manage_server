@@ -8,6 +8,10 @@ export const selectionState = (checkedItems) => {
   };
 };
 
+export const deletionCandidateIds = (preview) => (
+  preview.deletable.map((item) => item.id)
+);
+
 export const imageLabel = (item) => (
   item.tags?.[0] || `${item.short_id || item.id}（未标记）`
 );
@@ -87,6 +91,7 @@ if (root) {
   const resultPanel = dialog.querySelector("[data-image-batch-result]");
   const errorPanel = dialog.querySelector("[data-image-batch-error]");
   let completed = false;
+  let candidateIds = [];
 
   const selectedIds = () => (
     items.filter((item) => item.checked).map((item) => item.value)
@@ -139,6 +144,7 @@ if (root) {
     if (!imageIds.length) return;
     submit.disabled = true;
     confirm.disabled = true;
+    candidateIds = [];
     clearError();
     try {
       const response = await fetch(root.dataset.previewUrl, {
@@ -166,7 +172,8 @@ if (root) {
         dialog.querySelector("[data-batch-missing]"),
         payload.missing,
       );
-      confirm.disabled = payload.deletable.length === 0;
+      candidateIds = deletionCandidateIds(payload);
+      confirm.disabled = candidateIds.length === 0;
       previewPanel.hidden = false;
       resultPanel.hidden = true;
       completed = false;
@@ -190,7 +197,7 @@ if (root) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          image_ids: selectedIds(),
+          image_ids: candidateIds,
           query: root.dataset.query,
           page: Number.parseInt(root.dataset.page, 10),
         }),

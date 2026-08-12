@@ -1,10 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  deletionCandidateIds,
   imageLabel,
   imagesListUrl,
   selectionState,
 } from "../../src/docker_manage_server/static/js/image_batch_delete.mjs";
+
+test("deletionCandidateIds authorizes only images shown as deletable", () => {
+  assert.deepEqual(
+    deletionCandidateIds({
+      deletable: [{ id: "sha256:free" }],
+      in_use: [{ id: "sha256:used" }],
+      missing: ["sha256:missing"],
+    }),
+    ["sha256:free"],
+  );
+});
 
 test("selectionState counts selection and derives all/partial states", () => {
   assert.deepEqual(selectionState([false, false]), {

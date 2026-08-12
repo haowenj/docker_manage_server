@@ -95,6 +95,8 @@ def test_image_batch_delete_module_uses_safe_dom_updates():
     assert "textContent" in script
     assert "innerHTML" not in script
     assert "window.location.assign" in script
+    assert "candidateIds = deletionCandidateIds(payload)" in script
+    assert "image_ids: candidateIds" in script
 
 
 def test_hidden_state_overrides_component_display_styles():
