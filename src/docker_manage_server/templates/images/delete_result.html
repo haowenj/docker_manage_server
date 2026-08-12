@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading"><h2>Tag 删除结果</h2><a href="/images">返回镜像列表</a></div>
+  <h3>实际删除的 Tags</h3><ul>{% for tag in result.deleted_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul>
+  <h3>因容器正在使用而保留的 Tags</h3><ul>{% for tag in result.retained_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul>
+  <h3>已消失或已指向其他镜像而跳过的 Tags</h3><ul>{% for tag in result.skipped_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul>
+  <p>镜像状态：{{ '仍然存在' if result.image_exists else '已不存在' }}</p>
+  {% if result.image_exists %}<a class="button button-secondary" href="/images/{{ result.id }}">返回镜像详情</a>{% endif %}
+</section>
+{% endblock %}

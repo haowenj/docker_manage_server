@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading"><h2>确认删除可用 Tags</h2><a href="/images/{{ preview.id }}">返回镜像详情</a></div>
+  <div class="alert alert-warning">Docker 不支持条件删除 Tag。系统会在提交时重新检查，但检查与删除之间仍存在极短的外部并发窗口。</div>
+  <h3>将删除的 Tags</h3><ul>{% for tag in preview.deletable_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>没有可删除的 Tag</li>{% endfor %}</ul>
+  <h3>因容器正在使用而保留的 Tags</h3><ul>{% for tag in preview.retained_tags %}<li><code>{{ tag }}</code></li>{% else %}<li>无</li>{% endfor %}</ul>
+  {% if preview.deletable_tags %}<form method="post" action="/images/{{ preview.id }}/delete" data-confirm="确认删除以上当前可用的 Tags？该操作不可恢复。"><button class="button button-danger" type="submit">确认删除</button></form>{% else %}<button class="button button-danger" type="button" disabled>没有可删除的 Tag</button>{% endif %}
+</section>
+{% endblock %}

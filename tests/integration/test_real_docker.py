@@ -133,7 +133,7 @@ def test_real_image_inventory_and_safe_deletion():
         assert any(item.id == image.id for item in service.list(token).items)
 
         created = runtime.client.containers.create(
-            image.id,
+            tag,
             name=container_name,
             labels={
                 "docker-manage.test": "image-management",
@@ -141,15 +141,16 @@ def test_real_image_inventory_and_safe_deletion():
             },
         )
         with pytest.raises(ImageInUseError):
-            service.remove(image.id)
+            service.remove_available_tags(image.id)
         created.start()
         with pytest.raises(ImageInUseError):
-            service.remove(image.id)
+            service.remove_available_tags(image.id)
         created.remove(force=True, v=True)
         created = None
 
-        deleted = service.remove(image.id)
-        assert deleted["id"] == image.id
+        deleted = service.remove_available_tags(image.id)
+        assert deleted.id == image.id
+        assert deleted.deleted_tags == (tag,)
         with pytest.raises(ImageNotFound):
             runtime.client.images.get(image.id)
         image = None

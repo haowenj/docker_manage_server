@@ -54,6 +54,26 @@ def test_list_and_get_images_serialize_inspect_fields():
     assert fetched["raw_attrs"] is image.attrs
 
 
+def test_image_serialization_maps_sdk_failure():
+    class BrokenImage:
+        @property
+        def attrs(self):
+            raise DockerException("inspect failed")
+
+    client = SimpleNamespace(
+        images=SimpleNamespace(
+            list=lambda all=True: [BrokenImage()],
+            get=lambda _reference: BrokenImage(),
+        )
+    )
+    runtime = DockerRuntime(client=client)
+
+    with pytest.raises(DockerRuntimeError, match="inspect failed"):
+        runtime.list_images()
+    with pytest.raises(DockerRuntimeError, match="inspect failed"):
+        runtime.get_serialized_image("broken")
+
+
 def test_image_lookup_maps_not_found_and_list_maps_runtime_failure():
     missing = DockerRuntime(
         client=SimpleNamespace(
@@ -118,6 +138,7 @@ def test_list_containers_returns_ps_fields_and_raw_attrs():
     assert result[0]["id"] == "abc"
     assert result[0]["running"] is True
     assert result[0]["raw_attrs"] == raw
+    assert result[0]["image_reference"] is None
 
 
 def test_list_containers_maps_docker_sdk_failure():

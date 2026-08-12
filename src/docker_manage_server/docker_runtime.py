@@ -83,18 +83,18 @@ class DockerRuntime:
     def list_images(self) -> list[dict[str, Any]]:
         try:
             images = self.client.images.list(all=True)
+            return [self._serialize_image(image) for image in images]
         except DockerException as exc:
             raise DockerRuntimeError(str(exc)) from exc
-        return [self._serialize_image(image) for image in images]
 
     def get_serialized_image(self, image_id: str) -> dict[str, Any]:
         try:
             image = self.client.images.get(image_id)
+            return self._serialize_image(image)
         except SDKImageNotFound as exc:
             raise ImageNotFoundError(image_id) from exc
         except DockerException as exc:
             raise DockerRuntimeError(str(exc)) from exc
-        return self._serialize_image(image)
 
     def remove_image(self, reference: str) -> None:
         try:
@@ -300,6 +300,7 @@ class DockerRuntime:
             "names": [name] if name else [],
             "image": image,
             "image_id": attrs.get("Image"),
+            "image_reference": config.get("Image"),
             "command": attrs.get("Path") or config.get("Cmd"),
             "created": attrs.get("Created"),
             "status": getattr(container, "status", None),

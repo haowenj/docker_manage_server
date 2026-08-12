@@ -38,6 +38,7 @@ class ImageApiRuntime:
                 "status": "exited",
                 "running": False,
                 "image_id": "sha256:image",
+                "image_reference": "demo:1",
                 "labels": {},
             }
         ]
@@ -107,25 +108,32 @@ def test_image_api_returns_inspect_and_container_references(client):
     assert response.json()["containers"][0]["id"] == "container-id"
 
 
-def test_image_api_blocks_used_image_then_deletes_by_immutable_identity(client):
-    blocked = client.delete("/api/images/demo:1")
+def test_image_api_previews_used_tag_then_deletes_available_tags(client):
+    preview = client.get(
+        "/api/images/demo:1/tag-removal-preview"
+    )
+    assert preview.status_code == 200
+    assert preview.json()["retained_tags"] == ["demo:1"]
+    blocked = client.delete("/api/images/demo:1/tags")
     assert blocked.status_code == 409
     assert "consumer" in blocked.json()["detail"]
 
     client.app.state.test_runtime.containers = []
-    deleted = client.delete("/api/images/demo:1")
+    deleted = client.delete("/api/images/demo:1/tags")
 
     assert deleted.status_code == 200
     assert deleted.json() == {
-        "deleted": True,
         "id": "sha256:image",
-        "tags": ["demo:1"],
+        "deleted_tags": ["demo:1"],
+        "retained_tags": [],
+        "skipped_tags": [],
+        "image_exists": False,
     }
 
 
 def test_image_api_maps_missing_invalid_page_and_runtime_errors(client):
     assert client.get("/api/images/missing").status_code == 404
-    assert client.delete("/api/images/missing").status_code == 404
+    assert client.delete("/api/images/missing/tags").status_code == 404
     assert client.get("/api/images?page=0").status_code == 422
     assert client.get("/api/images?page=x").status_code == 422
 
@@ -136,4 +144,4 @@ def test_image_api_maps_missing_invalid_page_and_runtime_errors(client):
     assert client.get("/api/images/sha256:image").status_code == 503
     runtime.fail = "remove"
     runtime.containers = []
-    assert client.delete("/api/images/sha256:image").status_code == 503
+    assert client.delete("/api/images/sha256:image/tags").status_code == 503

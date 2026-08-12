@@ -89,7 +89,7 @@ def test_cross_origin_image_deletes_are_rejected(web_context):
     ]
     for method, path in (
         ("post", "/images/sha256:image-1/delete"),
-        ("delete", "/api/images/sha256:image-1"),
+        ("delete", "/api/images/sha256:image-1/tags"),
     ):
         response = getattr(client, method)(
             path,

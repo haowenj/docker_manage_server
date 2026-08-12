@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 from pathlib import Path
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -208,6 +209,8 @@ def create_web_router(
     images: ImageInventoryService,
 ) -> APIRouter:
     router = APIRouter(include_in_schema=False)
+    tag_removal_results: dict[str, Any] = {}
+    tag_removal_results_lock = Lock()
 
     @router.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
@@ -440,13 +443,52 @@ def create_web_router(
                     image_reference_view(item)
                     for item in detail.containers
                 ],
+                "has_deletable_tags": bool(
+                    images.preview_tag_removal(detail.summary.id).deletable_tags
+                ),
+            },
+        )
+
+    @router.get("/images/tag-removal-results/{result_id}")
+    def image_tag_removal_result(request: Request, result_id: str):
+        with tag_removal_results_lock:
+            result = tag_removal_results.get(result_id)
+        if result is None:
+            return _web_error(request, 404, "找不到删除结果", result_id)
+        return templates.TemplateResponse(
+            request=request,
+            name="images/delete_result.html",
+            context={
+                "page_title": "Tag 删除结果",
+                "active_nav": "images",
+                "result": result,
+            },
+        )
+
+    @router.get("/images/{image_id}/delete")
+    def preview_image_tag_removal(request: Request, image_id: str):
+        try:
+            preview = images.preview_tag_removal(image_id)
+        except ImageNotFoundError:
+            return _web_error(request, 404, "找不到镜像", image_id)
+        except DockerRuntimeError as exc:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", str(exc)
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="images/delete.html",
+            context={
+                "page_title": "删除可用 Tags",
+                "active_nav": "images",
+                "preview": preview,
             },
         )
 
     @router.post("/images/{image_id}/delete")
-    def remove_image(request: Request, image_id: str):
+    def remove_image_tags(request: Request, image_id: str):
         try:
-            images.remove(image_id)
+            result = images.remove_available_tags(image_id)
         except ImageNotFoundError:
             return _web_error(request, 404, "找不到镜像", image_id)
         except ImageInUseError as exc:
@@ -455,7 +497,15 @@ def create_web_router(
             return _web_error(
                 request, 503, "Docker daemon 不可用", str(exc)
             )
-        return RedirectResponse("/images", status_code=303)
+        result_id = uuid4().hex
+        with tag_removal_results_lock:
+            tag_removal_results[result_id] = result
+            while len(tag_removal_results) > 100:
+                tag_removal_results.pop(next(iter(tag_removal_results)))
+        return RedirectResponse(
+            f"/images/tag-removal-results/{result_id}",
+            status_code=303,
+        )
 
     @router.get("/compose-projects/{project_name}", response_class=HTMLResponse)
     def compose_project_detail(

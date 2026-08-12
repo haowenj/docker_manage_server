@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 
 from .docker_runtime import (
@@ -71,9 +72,27 @@ class ImageDetail:
     containers: tuple[ImageContainerReference, ...]
 
 
+@dataclass(frozen=True)
+class ImageTagRemovalPreview:
+    id: str
+    deletable_tags: tuple[str, ...]
+    retained_tags: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ImageTagRemovalResult:
+    id: str
+    deleted_tags: tuple[str, ...]
+    retained_tags: tuple[str, ...]
+    skipped_tags: tuple[str, ...]
+    image_exists: bool
+
+
 class ImageInventoryService:
     def __init__(self, runtime: DockerRuntime):
         self.runtime = runtime
+        self._locks: dict[str, Lock] = {}
+        self._locks_guard = Lock()
 
     def list(
         self,
@@ -119,25 +138,60 @@ class ImageInventoryService:
             containers=self._references(summary.id),
         )
 
-    def remove(self, image_id: str) -> dict[str, Any]:
-        detail = self.get(image_id)
-        if detail.containers:
-            raise ImageInUseError(detail.containers)
-        immutable_id = detail.summary.id
-        tags = list(detail.summary.tags)
-        for tag in tags:
-            current = self.runtime.get_serialized_image(tag)
-            if str(current.get("id") or "") != immutable_id:
-                raise DockerRuntimeError(
-                    f"镜像 Tag 已发生变化，已停止删除：{tag}"
-                )
-            self.runtime.remove_image(tag)
-        try:
-            self.runtime.remove_image(immutable_id)
-        except ImageNotFoundError:
-            if not tags:
-                raise
-        return {"id": immutable_id, "tags": tags}
+    def preview_tag_removal(self, image_id: str) -> ImageTagRemovalPreview:
+        item = self.runtime.get_serialized_image(image_id)
+        summary = _summary(item)
+        used = _used_tag_references(
+            self.runtime.list_containers(),
+            summary.tags,
+        )
+        return ImageTagRemovalPreview(
+            id=summary.id,
+            deletable_tags=tuple(tag for tag in summary.tags if tag not in used),
+            retained_tags=tuple(tag for tag in summary.tags if tag in used),
+        )
+
+    def remove_available_tags(self, image_id: str) -> ImageTagRemovalResult:
+        initial = self.runtime.get_serialized_image(image_id)
+        immutable_id = str(initial.get("id") or "")
+        with self._lock_for(immutable_id):
+            preview = self.preview_tag_removal(immutable_id)
+            if not preview.deletable_tags:
+                references = self._references(immutable_id)
+                raise ImageInUseError(references)
+            deleted = []
+            skipped = []
+            for tag in preview.deletable_tags:
+                try:
+                    current = self.runtime.get_serialized_image(tag)
+                except ImageNotFoundError:
+                    skipped.append(tag)
+                    continue
+                if str(current.get("id") or "") != immutable_id:
+                    skipped.append(tag)
+                    continue
+                try:
+                    self.runtime.remove_image(tag)
+                except ImageNotFoundError:
+                    skipped.append(tag)
+                    continue
+                deleted.append(tag)
+            try:
+                self.runtime.get_serialized_image(immutable_id)
+                image_exists = True
+            except ImageNotFoundError:
+                image_exists = False
+            return ImageTagRemovalResult(
+                id=immutable_id,
+                deleted_tags=tuple(deleted),
+                retained_tags=preview.retained_tags,
+                skipped_tags=tuple(skipped),
+                image_exists=image_exists,
+            )
+
+    def _lock_for(self, image_id: str) -> Lock:
+        with self._locks_guard:
+            return self._locks.setdefault(image_id, Lock())
 
     def _references(
         self,
@@ -267,6 +321,18 @@ def _labels(item: dict[str, Any]) -> dict[str, Any]:
 
 def _optional_text(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
+
+
+def _used_tag_references(
+    containers: list[dict[str, Any]],
+    tags: tuple[str, ...],
+) -> set[str]:
+    tag_set = set(tags)
+    return {
+        str(item.get("image_reference"))
+        for item in containers
+        if item.get("image_reference") in tag_set
+    }
 
 
 def _created_key(value: str | None) -> datetime:

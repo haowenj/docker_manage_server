@@ -46,5 +46,7 @@ def test_runtime_templates_are_packaged():
         "templates/compose_projects/terminal.html",
         "templates/images/list.html",
         "templates/images/detail.html",
+        "templates/images/delete.html",
+        "templates/images/delete_result.html",
     ):
         assert package.joinpath(path).is_file()

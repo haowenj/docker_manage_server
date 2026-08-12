@@ -250,17 +250,25 @@ def create_app(
             "containers": [asdict(item) for item in detail.containers],
         }
 
-    @app.delete("/api/images/{image_id}")
-    def remove_image(image_id: str) -> dict[str, Any]:
+    @app.get("/api/images/{image_id}/tag-removal-preview")
+    def preview_image_tag_removal(image_id: str) -> dict[str, Any]:
         try:
-            identity = images.remove(image_id)
+            return asdict(images.preview_tag_removal(image_id))
+        except ImageNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="image not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.delete("/api/images/{image_id}/tags")
+    def remove_image_tags(image_id: str) -> dict[str, Any]:
+        try:
+            return asdict(images.remove_available_tags(image_id))
         except ImageNotFoundError as exc:
             raise HTTPException(status_code=404, detail="image not found") from exc
         except ImageInUseError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except DockerRuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        return {"deleted": True, **identity}
 
     @app.get("/api/containers/{container_id}")
     def get_container(container_id: str) -> dict[str, Any]:

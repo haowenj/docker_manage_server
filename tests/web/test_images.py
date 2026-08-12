@@ -25,6 +25,7 @@ def direct_reference():
         "name": "direct",
         "image": "demo/app:1",
         "image_id": "sha256:image-1",
+        "image_reference": "demo/app:1",
         "status": "exited",
         "running": False,
         "labels": {},
@@ -41,6 +42,7 @@ def compose_reference():
         "name": "mall-web",
         "image": "demo/app:1",
         "image_id": "sha256:image-1",
+        "image_reference": "demo/app:1",
         "status": "running",
         "running": True,
         "labels": {
@@ -87,23 +89,34 @@ def test_image_detail_renders_summary_escaped_inspect_and_links(web_context):
     assert 'action="/images/sha256:image-1/delete"' not in response.text
 
 
-def test_unused_image_delete_requires_confirmation_and_redirects(web_context):
+def test_unused_image_delete_previews_and_redirects_to_result(web_context):
     client, _store, runtime = web_context
     runtime.images = [image_fixture(1, tags=("demo/app:1",))]
     runtime.containers = []
 
     detail = client.get("/images/sha256:image-1")
     assert (
-        'data-confirm="确认删除此镜像及其全部 Tags？该操作不可恢复。"'
+        'href="/images/sha256:image-1/delete"'
         in detail.text
     )
+
+    preview = client.get("/images/sha256:image-1/delete")
+    assert "将删除的 Tags" in preview.text
+    assert "demo/app:1" in preview.text
+    assert "极短的外部并发窗口" in preview.text
+    assert "data-confirm" in preview.text
 
     deleted = client.post(
         "/images/sha256:image-1/delete",
         follow_redirects=False,
     )
     assert deleted.status_code == 303
-    assert deleted.headers["location"] == "/images"
+    assert deleted.headers["location"].startswith(
+        "/images/tag-removal-results/"
+    )
+    result = client.get(deleted.headers["location"])
+    assert "实际删除的 Tags" in result.text
+    assert "demo/app:1" in result.text
 
 
 def test_images_render_dangling_and_map_errors(web_context):

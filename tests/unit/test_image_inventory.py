@@ -52,6 +52,7 @@ def container(
         "status": "running" if running else "exited",
         "running": running,
         "image_id": image_id,
+        "image_reference": "demo/app:1",
         "labels": labels,
     }
 
@@ -205,7 +206,7 @@ def test_detail_matches_references_by_immutable_image_id():
 
 
 @pytest.mark.parametrize("running", [False, True])
-def test_remove_rejects_any_container_reference(running):
+def test_preview_retains_exact_tag_used_by_running_or_stopped_container(running):
     runtime = FakeRuntime(
         [image("sha256:image", ("demo/app:1",))],
         [
@@ -218,28 +219,25 @@ def test_remove_rejects_any_container_reference(running):
         ],
     )
 
-    with pytest.raises(ImageInUseError, match="consumer"):
-        ImageInventoryService(runtime).remove("demo/app:1")
+    preview = ImageInventoryService(runtime).preview_tag_removal("demo/app:1")
+    assert preview.deletable_tags == ()
+    assert preview.retained_tags == ("demo/app:1",)
 
-    assert runtime.remove_calls == []
 
-
-def test_remove_uses_current_tags_then_immutable_id_and_returns_identity():
+def test_remove_available_tags_keeps_used_tag_and_deletes_unused_tag():
     runtime = FakeRuntime(
-        [image("sha256:image", ("demo/app:2", "demo/app:1"))]
+        [image("sha256:image", ("demo/app:2", "demo/app:1"))],
+        [container("using", "sha256:image", name="consumer")],
     )
+    runtime.containers[0]["image_reference"] = "demo/app:1"
 
-    deleted = ImageInventoryService(runtime).remove("demo/app:1")
+    result = ImageInventoryService(runtime).remove_available_tags("demo/app:1")
 
-    assert runtime.remove_calls == [
-        "demo/app:1",
-        "demo/app:2",
-        "sha256:image",
-    ]
-    assert deleted == {
-        "id": "sha256:image",
-        "tags": ["demo/app:1", "demo/app:2"],
-    }
+    assert runtime.remove_calls == ["demo/app:2"]
+    assert result.deleted_tags == ("demo/app:2",)
+    assert result.retained_tags == ("demo/app:1",)
+    assert result.skipped_tags == ()
+    assert result.image_exists is True
 
 
 def test_remove_stops_after_partial_failure():
@@ -249,12 +247,12 @@ def test_remove_stops_after_partial_failure():
     runtime.fail_reference = "demo/app:2"
 
     with pytest.raises(DockerRuntimeError, match="remove failed"):
-        ImageInventoryService(runtime).remove("sha256:image")
+        ImageInventoryService(runtime).remove_available_tags("sha256:image")
 
     assert runtime.remove_calls == ["demo/app:1", "demo/app:2"]
 
 
-def test_remove_stops_if_tag_is_repointed_before_deletion():
+def test_remove_skips_tag_if_repointed_before_deletion():
     runtime = FakeRuntime(
         [
             image("sha256:image", ("demo/app:1", "demo/app:2")),
@@ -278,16 +276,41 @@ def test_remove_stops_if_tag_is_repointed_before_deletion():
 
     runtime.get_serialized_image = repoint_on_second_tag
 
-    with pytest.raises(DockerRuntimeError, match="Tag 已发生变化"):
-        ImageInventoryService(runtime).remove("sha256:image")
+    result = ImageInventoryService(runtime).remove_available_tags(
+        "sha256:image"
+    )
 
     assert runtime.remove_calls == ["demo/app:1"]
+    assert result.skipped_tags == ("demo/app:2",)
     assert "demo/app:2" in runtime.images[1]["tags"]
 
 
-def test_dangling_image_not_found_on_id_delete_is_not_success():
-    runtime = FakeRuntime([image("sha256:image")])
-    runtime.images = []
+def test_tag_disappearing_during_removal_is_skipped():
+    runtime = FakeRuntime([image("sha256:image", ("demo/app:1",))])
+    original_remove = runtime.remove_image
 
-    with pytest.raises(ImageNotFoundError):
-        ImageInventoryService(runtime).remove("sha256:image")
+    def disappear(reference):
+        runtime.images = []
+        original_remove(reference)
+
+    runtime.remove_image = disappear
+
+    result = ImageInventoryService(runtime).remove_available_tags("sha256:image")
+    assert result.deleted_tags == ()
+    assert result.skipped_tags == ("demo/app:1",)
+    assert result.image_exists is False
+
+
+def test_dangling_or_all_used_image_has_no_deletable_tags():
+    dangling = ImageInventoryService(
+        FakeRuntime([image("sha256:dangling")])
+    ).preview_tag_removal("sha256:dangling")
+    assert dangling.deletable_tags == ()
+
+    runtime = FakeRuntime(
+        [image("sha256:used", ("demo/used:1",))],
+        [container("using", "sha256:used")],
+    )
+    runtime.containers[0]["image_reference"] = "demo/used:1"
+    with pytest.raises(ImageInUseError):
+        ImageInventoryService(runtime).remove_available_tags("sha256:used")
