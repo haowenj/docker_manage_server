@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 import json
 from pathlib import Path
 import shlex
@@ -32,6 +33,12 @@ from .docker_runtime import (
     ContainerNotRunningError,
     DockerRuntime,
     DockerRuntimeError,
+    ImageNotFoundError,
+)
+from .image_inventory import (
+    ImageInUseError,
+    ImageInventoryService,
+    InvalidImagePageError,
 )
 from .models import DeploymentTask, DirectoryRule
 from .security import CSP, UNSAFE_METHODS, origin_matches_host
@@ -61,6 +68,7 @@ def create_app(
     runtime = runtime or DockerRuntime(timeout_seconds=settings.compose_timeout_seconds)
     inventory = RuntimeInventoryService(runtime)
     lifecycle = RuntimeLifecycleService(runtime, inventory)
+    images = ImageInventoryService(runtime)
     deployment = DeploymentService(store, runtime)
 
     app = FastAPI(title="Docker Manage Server", version="0.1.0")
@@ -69,6 +77,7 @@ def create_app(
     app.state.runtime = runtime
     app.state.inventory = inventory
     app.state.lifecycle = lifecycle
+    app.state.images = images
     app.state.deployment = deployment
 
     @app.middleware("http")
@@ -99,7 +108,14 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
     app.include_router(
-        create_web_router(store, deployment, runtime, inventory, lifecycle)
+        create_web_router(
+            store,
+            deployment,
+            runtime,
+            inventory,
+            lifecycle,
+            images,
+        )
     )
 
     @app.get("/api/health")
@@ -210,6 +226,41 @@ def create_app(
             return {"items": runtime.list_containers()}
         except DockerRuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/images")
+    def list_images(q: str = "", page: str = "1") -> dict[str, Any]:
+        try:
+            return asdict(images.list(q, page))
+        except InvalidImagePageError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/api/images/{image_id}")
+    def get_image(image_id: str) -> dict[str, Any]:
+        try:
+            detail = images.get(image_id)
+        except ImageNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="image not found") from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "item": asdict(detail.summary),
+            "inspect": detail.inspect,
+            "containers": [asdict(item) for item in detail.containers],
+        }
+
+    @app.delete("/api/images/{image_id}")
+    def remove_image(image_id: str) -> dict[str, Any]:
+        try:
+            identity = images.remove(image_id)
+        except ImageNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="image not found") from exc
+        except ImageInUseError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DockerRuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"deleted": True, **identity}
 
     @app.get("/api/containers/{container_id}")
     def get_container(container_id: str) -> dict[str, Any]:

@@ -31,6 +31,7 @@ from .runtime_lifecycle import (
     RuntimeLifecycleService,
     RuntimeResourceNotFoundError,
 )
+from .image_inventory import ImageInventoryService
 from .web_views import (
     compose_project_view,
     container_view,
@@ -193,6 +194,7 @@ def create_web_router(
     runtime: DockerRuntime,
     inventory: RuntimeInventoryService,
     lifecycle: RuntimeLifecycleService,
+    images: ImageInventoryService,
 ) -> APIRouter:
     router = APIRouter(include_in_schema=False)
 
