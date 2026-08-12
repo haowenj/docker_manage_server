@@ -39,6 +39,10 @@ curl --fail "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 
 Compose 项目详情是项目内容器的统一入口。容器详情为只读弹框；日志和终端使用带项目上下文的独立页面。Compose 内容器不提供单容器启动、停止、重启或删除。没有 Compose 项目标签的独立容器继续使用独立容器详情、日志和终端页面。
 
+独立容器详情页提供启动、停止、重启和删除操作。运行中的独立容器必须先停止才能删除，不会执行强制删除。
+
+Compose 项目详情页以项目为单位执行 `docker compose start`、`stop`、`restart` 和 `down`。删除项目会删除项目容器与网络，但不使用 `--volumes`，因此保留命名卷和数据。Compose 项目内容器不提供单独生命周期操作。
+
 服务端镜像必须同时提供 Docker CLI、Docker Compose 插件和 Docker Socket 访问。Docker daemon 不可用时运行管理不可用；Compose 列表命令单独失败时，页面仍显示独立容器，并根据容器标签隔离 Compose 容器。
 
 管理台首版不含鉴权，可上传并部署归档、读取 `.env`、查看日志并打开容器终端，只能暴露在受信任内网。
