@@ -33,11 +33,14 @@ curl --fail "http://localhost:${DOCKER_MANAGE_SERVER_PORT}/api/health"
 - 运行概览：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/`
 - 部署任务：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/deployments`
 - 运行管理：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/runtime`
+- 镜像管理：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/images`
 - API 文档：`http://服务器IP:${DOCKER_MANAGE_SERVER_PORT}/docs`
 
 运行概览依次展示最近 5 个部署任务、前 5 个 Compose 项目和前 5 个独立容器。运行管理展示完整列表。Compose 项目通过 `docker compose ls --all` 读取，因此已停止但仍存在的项目也会保留。旧的 `/containers` 列表地址会跳转到 `/runtime`。
 
 Compose 项目详情是项目内容器的统一入口。容器详情为只读弹框；日志和终端使用带项目上下文的独立页面。Compose 内容器不提供单容器启动、停止、重启或删除。没有 Compose 项目标签的独立容器继续使用独立容器详情、日志和终端页面。
+
+镜像管理列出本机 Docker daemon 中的全部镜像，每页固定 20 条，可按仓库名、Tag 或镜像 ID 模糊搜索。镜像详情展示常用摘要、完整 inspect JSON，以及所有引用它的运行中或已停止容器；Compose 容器引用会进入项目详情并打开对应的只读容器弹框。只有完全未被容器引用的镜像才能删除，删除不使用强制模式，也不会删除容器、卷或构建缓存。
 
 独立容器详情页提供启动、停止、重启和删除操作。运行中的独立容器必须先停止才能删除，不会执行强制删除。
 

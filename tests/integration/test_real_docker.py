@@ -78,3 +78,99 @@ def test_real_standalone_container_lifecycle():
             runtime.client.containers.get(created.id).remove(force=True, v=True)
         except NotFound:
             pass
+
+
+@pytest.mark.skipif(not docker_available, reason="Docker daemon unavailable")
+def test_real_image_inventory_and_safe_deletion():
+    from io import BytesIO
+    from uuid import uuid4
+
+    from docker.errors import ImageNotFound, NotFound
+
+    from docker_manage_server.docker_runtime import DockerRuntime
+    from docker_manage_server.image_inventory import (
+        ImageInUseError,
+        ImageInventoryService,
+    )
+
+    runtime = DockerRuntime()
+    try:
+        runtime.client.images.get("alpine:3.21")
+    except ImageNotFound:
+        pytest.skip("local test image unavailable: alpine:3.21")
+
+    token = uuid4().hex
+    tag = f"docker-manage-image-test:{token}"
+    container_name = f"docker-manage-image-test-{token}"
+    image = None
+    created = None
+    dockerfile = (
+        "FROM alpine:3.21\n"
+        f'LABEL docker-manage.test="image-management" test.token="{token}"\n'
+        'CMD ["sh", "-c", "while true; do sleep 1; done"]\n'
+    ).encode()
+    archive = BytesIO()
+    import tarfile
+
+    with tarfile.open(fileobj=archive, mode="w") as bundle:
+        info = tarfile.TarInfo("Dockerfile")
+        info.size = len(dockerfile)
+        bundle.addfile(info, BytesIO(dockerfile))
+    archive.seek(0)
+
+    try:
+        image, _logs = runtime.client.images.build(
+            fileobj=archive,
+            custom_context=True,
+            tag=tag,
+            rm=True,
+            labels={
+                "docker-manage.test": "image-management",
+                "test.token": token,
+            },
+        )
+        service = ImageInventoryService(runtime)
+        assert any(item.id == image.id for item in service.list(token).items)
+
+        created = runtime.client.containers.create(
+            image.id,
+            name=container_name,
+            labels={
+                "docker-manage.test": "image-management",
+                "test.token": token,
+            },
+        )
+        with pytest.raises(ImageInUseError):
+            service.remove(image.id)
+        created.start()
+        with pytest.raises(ImageInUseError):
+            service.remove(image.id)
+        created.remove(force=True, v=True)
+        created = None
+
+        deleted = service.remove(image.id)
+        assert deleted["id"] == image.id
+        with pytest.raises(ImageNotFound):
+            runtime.client.images.get(image.id)
+        image = None
+    finally:
+        if created is not None:
+            try:
+                current = runtime.client.containers.get(created.id)
+                labels = current.attrs.get("Config", {}).get("Labels", {})
+                if labels.get("test.token") == token:
+                    current.remove(force=True, v=True)
+            except NotFound:
+                pass
+        if image is not None:
+            try:
+                current_image = runtime.client.images.get(image.id)
+                labels = current_image.attrs.get("Config", {}).get("Labels", {})
+                if labels.get("test.token") == token:
+                    runtime.client.images.remove(
+                        current_image.id,
+                        force=True,
+                        noprune=False,
+                    )
+            except ImageNotFound:
+                pass

@@ -75,3 +75,25 @@ def test_cross_origin_runtime_actions_are_rejected(web_context):
         )
         assert response.status_code == 403
     assert runtime.lifecycle_calls == []
+
+
+def test_cross_origin_image_deletes_are_rejected(web_context):
+    client, _store, runtime = web_context
+    runtime.images = [
+        {
+            "id": "sha256:image-1",
+            "short_id": "image-1",
+            "tags": ["demo/app:1"],
+            "raw_attrs": {"Id": "sha256:image-1"},
+        }
+    ]
+    for method, path in (
+        ("post", "/images/sha256:image-1/delete"),
+        ("delete", "/api/images/sha256:image-1"),
+    ):
+        response = getattr(client, method)(
+            path,
+            headers={"Origin": "https://evil.example"},
+        )
+        assert response.status_code == 403
+    assert runtime.image_remove_calls == []
