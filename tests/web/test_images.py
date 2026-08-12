@@ -65,6 +65,7 @@ def test_image_navigation_list_search_and_pagination(web_context):
     assert "第 2 / 2 页" in response.text
     assert "q=demo&amp;page=1" in response.text
     assert response.text.count('class="image-row"') == 5
+    assert "引用容器" in response.text
 
 
 def test_image_detail_renders_summary_escaped_inspect_and_links(web_context):

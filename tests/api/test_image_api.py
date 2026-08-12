@@ -96,6 +96,7 @@ def test_image_api_lists_searches_and_pages(client):
     assert payload["page_size"] == 20
     assert payload["total_items"] == 1
     assert payload["items"][0]["id"] == "sha256:image"
+    assert payload["items"][0]["container_count"] == 1
 
 
 def test_image_api_returns_inspect_and_container_references(client):

@@ -136,6 +136,44 @@ def test_list_aggregates_tags_sorts_searches_and_pages():
     assert service.list(page=3).items == ()
 
 
+def test_list_counts_running_and_stopped_container_references():
+    runtime = FakeRuntime(
+        [
+            image("sha256:used", ("demo/used:1",)),
+            image("sha256:unused", ("demo/unused:1",)),
+        ],
+        [
+            container("running", "sha256:used", running=True),
+            container("stopped", "sha256:used", running=False),
+            container("other", "sha256:other", running=True),
+        ],
+    )
+
+    items = ImageInventoryService(runtime).list().items
+
+    counts = {item.id: item.container_count for item in items}
+    assert counts == {"sha256:used": 2, "sha256:unused": 0}
+
+
+def test_list_sorts_mixed_rfc3339_precision_by_actual_time():
+    service = ImageInventoryService(
+        FakeRuntime(
+            [
+                image("sha256:whole", created="2026-08-12T00:00:00Z"),
+                image(
+                    "sha256:fraction",
+                    created="2026-08-12T00:00:00.9Z",
+                ),
+            ]
+        )
+    )
+
+    assert [item.id for item in service.list().items] == [
+        "sha256:fraction",
+        "sha256:whole",
+    ]
+
+
 @pytest.mark.parametrize("page", [0, -1, "x", "1.5"])
 def test_list_rejects_invalid_page(page):
     with pytest.raises(InvalidImagePageError):
@@ -214,6 +252,37 @@ def test_remove_stops_after_partial_failure():
         ImageInventoryService(runtime).remove("sha256:image")
 
     assert runtime.remove_calls == ["demo/app:1", "demo/app:2"]
+
+
+def test_remove_stops_if_tag_is_repointed_before_deletion():
+    runtime = FakeRuntime(
+        [
+            image("sha256:image", ("demo/app:1", "demo/app:2")),
+            image("sha256:other", ("demo/other:1",)),
+        ]
+    )
+    original_get = runtime.get_serialized_image
+    lookups = 0
+
+    def repoint_on_second_tag(reference):
+        nonlocal lookups
+        if reference == "demo/app:2":
+            lookups += 1
+            if lookups == 1:
+                for item in runtime.images:
+                    if item["id"] == "sha256:image":
+                        item["tags"].remove(reference)
+                    if item["id"] == "sha256:other":
+                        item["tags"].append(reference)
+        return original_get(reference)
+
+    runtime.get_serialized_image = repoint_on_second_tag
+
+    with pytest.raises(DockerRuntimeError, match="Tag 已发生变化"):
+        ImageInventoryService(runtime).remove("sha256:image")
+
+    assert runtime.remove_calls == ["demo/app:1"]
+    assert "demo/app:2" in runtime.images[1]["tags"]
 
 
 def test_dangling_image_not_found_on_id_delete_is_not_success():

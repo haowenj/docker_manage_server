@@ -9,8 +9,8 @@
     {% if image_page.query %}<a class="button button-secondary" href="/images">清除</a>{% endif %}
   </form>
   <div class="table-scroll"><table>
-    <thead><tr><th>Tags</th><th>镜像 ID</th><th>大小</th><th>创建时间</th></tr></thead>
-    <tbody>{% for image in images %}<tr class="image-row"><td><div class="tag-list">{% for tag in image.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div></td><td><a href="/images/{{ image.item.id }}"><code>{{ image.item.short_id }}</code></a></td><td>{{ image.size }}</td><td>{{ image.created }}</td></tr>{% else %}<tr><td colspan="4" class="empty-cell">没有符合条件的本机镜像。</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>Tags</th><th>镜像 ID</th><th>大小</th><th>创建时间</th><th>引用容器</th></tr></thead>
+    <tbody>{% for image in images %}<tr class="image-row"><td><div class="tag-list">{% for tag in image.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div></td><td><a href="/images/{{ image.item.id }}"><code>{{ image.item.short_id }}</code></a></td><td>{{ image.size }}</td><td>{{ image.created }}</td><td>{{ image.item.container_count }}</td></tr>{% else %}<tr><td colspan="5" class="empty-cell">没有符合条件的本机镜像。</td></tr>{% endfor %}</tbody>
   </table></div>
   <nav class="pagination" aria-label="镜像分页"><span>第 {{ image_page.page }} / {{ image_page.total_pages }} 页</span><div>{% if image_page.page > 1 %}<a class="button button-secondary" href="/images?q={{ image_page.query|urlencode }}&amp;page={{ image_page.page - 1 }}">上一页</a>{% endif %}{% if image_page.page < image_page.total_pages %}<a class="button button-secondary" href="/images?q={{ image_page.query|urlencode }}&amp;page={{ image_page.page + 1 }}">下一页</a>{% endif %}</div></nav>
 </section>

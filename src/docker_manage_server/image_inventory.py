@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
-from .docker_runtime import DockerRuntime, ImageNotFoundError
+from .docker_runtime import (
+    DockerRuntime,
+    DockerRuntimeError,
+    ImageNotFoundError,
+)
 from .runtime_inventory import COMPOSE_PROJECT_LABEL, COMPOSE_SERVICE_LABEL
 
 
@@ -36,6 +41,7 @@ class ImageSummary:
     os: str | None
     entrypoint: Any
     command: Any
+    container_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -76,7 +82,18 @@ class ImageInventoryService:
     ) -> ImagePage:
         page_number = _page_number(page)
         normalized_query = query.strip()
-        summaries = _summaries(self.runtime.list_images())
+        containers = self.runtime.list_containers()
+        reference_counts: dict[str, int] = {}
+        for container in containers:
+            image_id = str(container.get("image_id") or "")
+            if image_id:
+                reference_counts[image_id] = (
+                    reference_counts.get(image_id, 0) + 1
+                )
+        summaries = _summaries(
+            self.runtime.list_images(),
+            reference_counts,
+        )
         if normalized_query:
             needle = normalized_query.casefold()
             summaries = tuple(
@@ -109,6 +126,11 @@ class ImageInventoryService:
         immutable_id = detail.summary.id
         tags = list(detail.summary.tags)
         for tag in tags:
+            current = self.runtime.get_serialized_image(tag)
+            if str(current.get("id") or "") != immutable_id:
+                raise DockerRuntimeError(
+                    f"镜像 Tag 已发生变化，已停止删除：{tag}"
+                )
             self.runtime.remove_image(tag)
         try:
             self.runtime.remove_image(immutable_id)
@@ -160,7 +182,10 @@ def _page_number(value: int | str) -> int:
     return page
 
 
-def _summaries(items: list[dict[str, Any]]) -> tuple[ImageSummary, ...]:
+def _summaries(
+    items: list[dict[str, Any]],
+    reference_counts: dict[str, int] | None = None,
+) -> tuple[ImageSummary, ...]:
     grouped: dict[str, dict[str, Any]] = {}
     for item in items:
         image_id = str(item.get("id") or "")
@@ -177,17 +202,24 @@ def _summaries(items: list[dict[str, Any]]) -> tuple[ImageSummary, ...]:
             grouped[image_id]["digests"].update(
                 item.get("digests") or ()
             )
-    summaries = tuple(_summary(item) for item in grouped.values())
+    counts = reference_counts or {}
+    summaries = tuple(
+        _summary(item, counts.get(str(item.get("id") or ""), 0))
+        for item in grouped.values()
+    )
     return tuple(
         sorted(
             summaries,
-            key=lambda item: (item.created or "", item.id),
+            key=lambda item: (_created_key(item.created), item.id),
             reverse=True,
         )
     )
 
 
-def _summary(item: dict[str, Any]) -> ImageSummary:
+def _summary(
+    item: dict[str, Any],
+    container_count: int = 0,
+) -> ImageSummary:
     image_id = str(item.get("id") or "")
     short_id = str(item.get("short_id") or "")
     if short_id.startswith("sha256:"):
@@ -215,6 +247,7 @@ def _summary(item: dict[str, Any]) -> ImageSummary:
         os=_optional_text(item.get("os")),
         entrypoint=item.get("entrypoint"),
         command=item.get("command"),
+        container_count=container_count,
     )
 
 
@@ -234,3 +267,15 @@ def _labels(item: dict[str, Any]) -> dict[str, Any]:
 
 def _optional_text(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
+
+
+def _created_key(value: str | None) -> datetime:
+    if not value:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
