@@ -2,6 +2,7 @@ from importlib.resources import files
 
 from docker_manage_server.docker_runtime import ComposeProjectRecord
 from docker_manage_server.models import TaskStatus
+from docker_manage_server.web import static_asset_version
 
 
 def test_dashboard_renders_three_runtime_modules_with_five_items(web_context):
@@ -103,6 +104,28 @@ def test_template_and_static_resources_are_package_data():
     assert package.joinpath("templates/base.html").is_file()
     assert package.joinpath("static/css/app.css").is_file()
     assert package.joinpath("static/js/app.js").is_file()
+
+
+def test_base_template_versions_local_static_assets(web_context):
+    client, _store, _runtime = web_context
+    response = client.get("/")
+    assert (
+        f'/static/css/app.css?v={static_asset_version("css/app.css")}'
+        in response.text
+    )
+    assert (
+        f'/static/js/app.js?v={static_asset_version("js/app.js")}'
+        in response.text
+    )
+
+
+def test_static_asset_version_changes_with_content(tmp_path, monkeypatch):
+    asset = tmp_path / "app.js"
+    asset.write_text("one", encoding="utf-8")
+    monkeypatch.setattr("docker_manage_server.web.STATIC_ROOT", tmp_path)
+    first = static_asset_version("app.js")
+    asset.write_text("two", encoding="utf-8")
+    assert static_asset_version("app.js") != first
 
 
 def test_tool_viewports_have_bounded_height_and_internal_scrolling():

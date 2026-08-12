@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }} · Docker Manage</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}?v={{ static_asset_version('css/app.css') }}">
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -23,7 +23,7 @@
       {% block content %}{% endblock %}
     </main>
   </div>
-  <script defer src="{{ url_for('static', path='/js/app.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/js/app.js') }}?v={{ static_asset_version('js/app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

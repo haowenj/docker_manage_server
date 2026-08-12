@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,15 @@ from .web_views import (
 
 
 PACKAGE_ROOT = Path(__file__).parent
+STATIC_ROOT = PACKAGE_ROOT / "static"
+
+
+def static_asset_version(path: str) -> str:
+    return sha256((STATIC_ROOT / path).read_bytes()).hexdigest()[:12]
+
+
 templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
+templates.env.globals["static_asset_version"] = static_asset_version
 
 
 def _deployment_list_context(store: TaskStore) -> dict[str, Any]:
