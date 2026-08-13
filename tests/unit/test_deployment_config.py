@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from docker_manage_server.deployment_config import (
     ConfigurationValidationError,
     apply_directory_rules,
+    can_delete_task,
     can_edit_task,
     can_retry_task,
     effective_directory_rules,
@@ -115,6 +116,25 @@ def test_upload_failure_is_not_editable_or_retryable(tmp_path: Path):
     )
     assert can_edit_task(task) is False
     assert can_retry_task(task) is False
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (TaskStatus.UPLOADED, False),
+        (TaskStatus.EXTRACTING, False),
+        (TaskStatus.DEPLOYING, False),
+        (TaskStatus.PENDING_REVIEW, True),
+        (TaskStatus.FAILED, True),
+        (TaskStatus.DEPLOYED, True),
+    ],
+)
+def test_delete_permission_depends_only_on_non_active_status(
+    tmp_path: Path,
+    status: TaskStatus,
+    expected: bool,
+):
+    assert can_delete_task(make_task(tmp_path, status=status)) is expected
 
 
 def test_applies_mode_to_new_and_existing_directories_without_recursing(tmp_path: Path):

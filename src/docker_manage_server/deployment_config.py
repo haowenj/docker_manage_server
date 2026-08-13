@@ -129,3 +129,11 @@ def can_edit_task(task: DeploymentTask) -> bool:
 
 def can_retry_task(task: DeploymentTask) -> bool:
     return task.status is TaskStatus.PENDING_REVIEW or is_recoverable_failure(task)
+
+
+def can_delete_task(task: DeploymentTask) -> bool:
+    return task.status in {
+        TaskStatus.PENDING_REVIEW,
+        TaskStatus.FAILED,
+        TaskStatus.DEPLOYED,
+    }

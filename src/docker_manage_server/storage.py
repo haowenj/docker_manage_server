@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime, timezone
 import json
+import os
 import re
 import shutil
+import stat
 from pathlib import Path
 
 from .models import DeploymentTask, TaskStatus
@@ -96,6 +98,49 @@ class TaskStore:
             shutil.rmtree(resolved_package)
         if state_path.exists():
             state_path.unlink()
+
+    def package_size_bytes(self, task_id: str) -> int:
+        root = self.package_dir(task_id)
+        try:
+            root_mode = root.lstat().st_mode
+        except FileNotFoundError:
+            return 0
+        if not stat.S_ISDIR(root_mode):
+            raise OSError("task package path is not a directory")
+
+        total = 0
+
+        def handle_walk_error(exc: OSError) -> None:
+            if isinstance(exc, FileNotFoundError):
+                return
+            raise exc
+
+        for directory, dirnames, filenames in os.walk(
+            root,
+            topdown=True,
+            onerror=handle_walk_error,
+            followlinks=False,
+        ):
+            directory_path = Path(directory)
+            safe_directories = []
+            for name in dirnames:
+                path = directory_path / name
+                try:
+                    mode = path.lstat().st_mode
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISDIR(mode):
+                    safe_directories.append(name)
+            dirnames[:] = safe_directories
+            for name in filenames:
+                path = directory_path / name
+                try:
+                    file_stat = path.lstat()
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(file_stat.st_mode):
+                    total += file_stat.st_size
+        return total
 
     def package_dir(self, task_id: str) -> Path:
         self._validate_task_id(task_id)

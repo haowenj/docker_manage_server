@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+import pytest
+
 from docker_manage_server.models import TaskStatus
 from docker_manage_server.storage import TaskStore
 
@@ -21,6 +23,91 @@ def test_delete_task_removes_only_task_directory(tmp_path: Path):
     store.delete("task-1")
     assert not (tmp_path / "packages/task-1").exists()
     assert (tmp_path / "packages/task-2").exists()
+
+
+def test_package_size_sums_regular_files_and_ignores_symlinks(tmp_path: Path):
+    store = TaskStore(tmp_path)
+    task = store.create("sized", "demo.tar.gz")
+    (task.package_dir / "archive.tar.gz").write_bytes(b"1234")
+    nested = task.package_dir / "extracted"
+    nested.mkdir()
+    (nested / "compose.yaml").write_bytes(b"123456")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "large.bin").write_bytes(b"x" * 100)
+    (task.package_dir / "file-link").symlink_to(external / "large.bin")
+    (task.package_dir / "dir-link").symlink_to(
+        external,
+        target_is_directory=True,
+    )
+
+    assert store.package_size_bytes("sized") == 10
+
+
+def test_package_size_returns_zero_for_missing_directory(tmp_path: Path):
+    store = TaskStore(tmp_path)
+
+    assert store.package_size_bytes("missing") == 0
+
+
+def test_package_size_skips_file_that_disappears(tmp_path: Path, monkeypatch):
+    store = TaskStore(tmp_path)
+    task = store.create("changing", "demo.tar.gz")
+    target = task.package_dir / "vanishing.bin"
+    target.write_bytes(b"123")
+    real_lstat = Path.lstat
+
+    def vanish(path):
+        if path == target:
+            raise FileNotFoundError(path)
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", vanish)
+
+    assert store.package_size_bytes("changing") == 0
+
+
+def test_package_size_propagates_read_error(tmp_path: Path, monkeypatch):
+    store = TaskStore(tmp_path)
+    task = store.create("blocked", "demo.tar.gz")
+    target = task.package_dir / "blocked.bin"
+    target.write_bytes(b"123")
+    real_lstat = Path.lstat
+
+    def blocked(path):
+        if path == target:
+            raise PermissionError("blocked")
+        return real_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", blocked)
+
+    with pytest.raises(PermissionError, match="blocked"):
+        store.package_size_bytes("blocked")
+
+
+def test_delete_can_retry_after_state_file_unlink_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    store = TaskStore(tmp_path)
+    store.create("partial", "demo.tar.gz")
+    state_path = tmp_path / "tasks/partial.json"
+    real_unlink = Path.unlink
+
+    def fail_state_once(path, *args, **kwargs):
+        if path == state_path:
+            raise PermissionError("blocked")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_state_once)
+    with pytest.raises(PermissionError, match="blocked"):
+        store.delete("partial")
+    assert not store.package_dir("partial").exists()
+    assert state_path.is_file()
+
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    store.delete("partial")
+    assert not state_path.exists()
 
 
 def test_save_and_reload_status(tmp_path: Path):
