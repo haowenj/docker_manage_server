@@ -8,7 +8,11 @@ from docker_manage_server.docker_runtime import (
     ContainerNotFoundError,
     DockerRuntimeError,
 )
-from docker_manage_server.runtime_inventory import RuntimeInventoryService
+from docker_manage_server.runtime_inventory import (
+    RuntimeInventoryService,
+    RuntimeOverview,
+    filter_runtime_overview,
+)
 
 
 def container(
@@ -202,3 +206,98 @@ def test_find_project_returns_project_or_none_and_maps_runtime_failures():
     )
     with pytest.raises(DockerRuntimeError, match="compose plugin unavailable"):
         inventory.find_project("mall")
+
+
+def runtime_overview_for_query_tests():
+    runtime = FakeRuntime(
+        projects=(
+            ComposeProjectRecord(
+                "Mall", "running(2)", ("/srv/mall/compose.yaml",)
+            ),
+        ),
+        containers=[
+            container(
+                "mall-web-full-id",
+                running=True,
+                created="2026-08-01T00:00:00Z",
+                project="Mall",
+                service="web",
+            )
+            | {"name": "mall-web", "image": "nginx:1.27"},
+            container(
+                "mall-worker-full-id",
+                running=True,
+                created="2026-08-01T00:00:00Z",
+                project="Mall",
+                service="worker",
+            )
+            | {"name": "mall-worker", "image": "python:3.13"},
+            container(
+                "standalone-full-id",
+                running=True,
+                created="2026-08-02T00:00:00Z",
+            )
+            | {
+                "name": "utility",
+                "short_id": "standalone",
+                "image": "alpine:3.21",
+            },
+        ],
+    )
+    return RuntimeInventoryService(runtime).load()
+
+
+def test_filter_runtime_overview_matches_compose_project_name_and_keeps_all_project_containers():
+    overview = runtime_overview_for_query_tests()
+
+    filtered = filter_runtime_overview(overview, compose_query="mAlL")
+
+    assert [project.name for project in filtered.compose_projects] == ["Mall"]
+    assert [item["name"] for item in filtered.compose_projects[0].containers] == [
+        "mall-web",
+        "mall-worker",
+    ]
+    assert filtered.standalone_containers == overview.standalone_containers
+
+
+def test_filter_runtime_overview_matches_compose_container_name_or_service_only():
+    overview = runtime_overview_for_query_tests()
+
+    filtered = filter_runtime_overview(overview, compose_query="WORK")
+
+    assert [item["name"] for item in filtered.compose_projects[0].containers] == [
+        "mall-worker",
+    ]
+
+
+def test_filter_runtime_overview_matches_standalone_name_id_or_image_and_keeps_queries_separate():
+    overview = runtime_overview_for_query_tests()
+
+    by_short_id = filter_runtime_overview(overview, container_query="STANDALONE")
+    by_image = filter_runtime_overview(overview, container_query="ALPINE")
+    by_name = filter_runtime_overview(overview, container_query="utility")
+
+    assert [item["name"] for item in by_short_id.standalone_containers] == [
+        "utility"
+    ]
+    assert [item["name"] for item in by_image.standalone_containers] == ["utility"]
+    assert [item["name"] for item in by_name.standalone_containers] == ["utility"]
+    assert [project.name for project in by_name.compose_projects] == ["Mall"]
+
+
+def test_filter_runtime_overview_ignores_whitespace_only_queries_and_preserves_errors():
+    overview = runtime_overview_for_query_tests()
+    overview = RuntimeOverview(
+        compose_projects=overview.compose_projects,
+        standalone_containers=overview.standalone_containers,
+        compose_error="compose unavailable",
+        docker_error=None,
+    )
+
+    filtered = filter_runtime_overview(
+        overview, compose_query="  ", container_query=""
+    )
+
+    assert filtered.compose_projects == overview.compose_projects
+    assert filtered.standalone_containers == overview.standalone_containers
+    assert filtered.compose_error == "compose unavailable"

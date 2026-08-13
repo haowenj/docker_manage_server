@@ -47,6 +47,83 @@ class RuntimeOverview:
     docker_error: str | None = None
 
 
+def filter_runtime_overview(
+    overview: RuntimeOverview,
+    compose_query: str = "",
+    container_query: str = "",
+) -> RuntimeOverview:
+    compose_query = compose_query.strip().casefold()
+    container_query = container_query.strip().casefold()
+
+    if compose_query:
+        projects = []
+        for project in overview.compose_projects:
+            filtered = _filter_compose_project(project, compose_query)
+            if filtered is not None:
+                projects.append(filtered)
+        compose_projects = tuple(projects)
+    else:
+        compose_projects = overview.compose_projects
+
+    if container_query:
+        standalone_containers = tuple(
+            item
+            for item in overview.standalone_containers
+            if _matches_any(
+                container_query,
+                item.get("name"),
+                item.get("id"),
+                item.get("short_id"),
+                item.get("image"),
+            )
+        )
+    else:
+        standalone_containers = overview.standalone_containers
+
+    return RuntimeOverview(
+        compose_projects=compose_projects,
+        standalone_containers=standalone_containers,
+        compose_error=overview.compose_error,
+        docker_error=overview.docker_error,
+    )
+
+
+def _filter_compose_project(
+    project: ComposeProject,
+    query: str,
+) -> ComposeProject | None:
+    if _matches_any(query, project.name):
+        return project
+
+    containers = tuple(
+        item
+        for item in project.containers
+        if _matches_any(
+            query,
+            item.get("name"),
+            item.get("id"),
+            item.get("short_id"),
+            item.get("compose_service"),
+        )
+    )
+    if not containers:
+        return None
+    return ComposeProject(
+        name=project.name,
+        status=project.status,
+        config_files=project.config_files,
+        containers=containers,
+    )
+
+
+def _matches_any(query: str, *values: object) -> bool:
+    return any(
+        query in str(value).casefold()
+        for value in values
+        if value is not None
+    )
+
+
 class RuntimeInventoryService:
     def __init__(self, runtime: DockerRuntime):
         self.runtime = runtime
