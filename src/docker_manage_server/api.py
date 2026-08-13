@@ -237,11 +237,18 @@ def create_app(
         return _task_payload(task)
 
     @app.delete("/api/deployment-tasks/{task_id}")
-    def discard_task(task_id: str) -> dict[str, Any]:
+    def delete_task(task_id: str) -> dict[str, Any]:
         try:
-            task = deployment.discard(task_id)
+            task = deployment.delete_task(task_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="deployment task not found",
+            ) from exc
         except DeploymentStateError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         return _task_payload(task)
 
     @app.get("/api/containers")

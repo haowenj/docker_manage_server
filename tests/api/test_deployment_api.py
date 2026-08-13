@@ -141,3 +141,53 @@ def test_api_allows_retryable_failed_task_and_rejects_upload_failure(
     store.save(task)
     blocked = client.post(f"/api/deployment-tasks/{task_id}/deploy")
     assert blocked.status_code == 409
+
+
+def test_api_deletes_deployed_task_but_keeps_stable_directory(
+    client,
+    valid_archive,
+):
+    task_id = upload(client, valid_archive)["task_id"]
+    store = client.app.state.store
+    task = store.get(task_id)
+    task.status = TaskStatus.DEPLOYED
+    assert task.deployment_dir is not None
+    task.deployment_dir.mkdir(parents=True)
+    stable = task.deployment_dir / "compose.yaml"
+    stable.write_text("services: {}\n", encoding="utf-8")
+    store.save(task)
+
+    response = client.delete(f"/api/deployment-tasks/{task_id}")
+
+    assert response.status_code == 200
+    assert response.json()["task_id"] == task_id
+    assert stable.is_file()
+    assert client.get(f"/api/deployment-tasks/{task_id}").status_code == 404
+
+
+def test_api_delete_rejects_active_task_and_maps_missing(client, valid_archive):
+    task_id = upload(client, valid_archive)["task_id"]
+    store = client.app.state.store
+    task = store.get(task_id)
+    task.status = TaskStatus.DEPLOYING
+    store.save(task)
+
+    assert client.delete(f"/api/deployment-tasks/{task_id}").status_code == 409
+    assert client.delete("/api/deployment-tasks/missing").status_code == 404
+    assert store.package_dir(task_id).is_dir()
+
+
+def test_api_delete_maps_storage_failure(client, valid_archive, monkeypatch):
+    task_id = upload(client, valid_archive)["task_id"]
+    store = client.app.state.store
+
+    def fail_delete(candidate):
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr(store, "delete", fail_delete)
+
+    response = client.delete(f"/api/deployment-tasks/{task_id}")
+
+    assert response.status_code == 500
+    assert "blocked" in response.json()["detail"]
+    assert store.get(task_id).status is TaskStatus.PENDING_REVIEW
