@@ -31,6 +31,7 @@ from .docker_runtime import (
 from .models import DirectoryRule
 from .storage import TaskStore
 from .runtime_inventory import RuntimeInventoryService
+from .runtime_inventory import filter_runtime_overview
 from .runtime_lifecycle import (
     RuntimeActionConflictError,
     RuntimeLifecycleService,
@@ -384,8 +385,16 @@ def create_web_router(
         return RedirectResponse("/deployments", status_code=303)
 
     @router.get("/runtime", response_class=HTMLResponse)
-    def runtime_page(request: Request):
-        overview = inventory.load()
+    def runtime_page(
+        request: Request,
+        compose_q: str = "",
+        container_q: str = "",
+    ):
+        overview = filter_runtime_overview(
+            inventory.load(),
+            compose_query=compose_q,
+            container_query=container_q,
+        )
         if overview.docker_error:
             return _web_error(
                 request, 503, "Docker daemon 不可用", overview.docker_error
@@ -404,6 +413,8 @@ def create_web_router(
                     container_view(item) for item in overview.standalone_containers
                 ],
                 "compose_error": overview.compose_error,
+                "compose_q": compose_q,
+                "container_q": container_q,
             },
         )
 
