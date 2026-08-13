@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
-from .deployment_config import can_edit_task, can_retry_task
+from .deployment_config import can_delete_task, can_edit_task, can_retry_task
 from .models import DeploymentTask, TaskStatus
 from .runtime_inventory import ComposeProject, RuntimeOverview
 from .image_inventory import ImageContainerReference, ImageSummary
@@ -33,6 +33,20 @@ def task_view(task: DeploymentTask) -> dict[str, Any]:
         "editable": can_edit_task(task),
         "retryable": can_retry_task(task),
     }
+
+
+def task_list_view(
+    task: DeploymentTask,
+    package_size_bytes: int | None,
+) -> dict[str, Any]:
+    view = task_view(task)
+    view["package_size"] = (
+        _format_bytes(package_size_bytes)
+        if package_size_bytes is not None
+        else "无法读取"
+    )
+    view["deletable"] = can_delete_task(task)
+    return view
 
 
 def container_view(item: Mapping[str, Any]) -> dict[str, Any]:

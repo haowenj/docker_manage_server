@@ -47,6 +47,7 @@ from .web_views import (
     image_reference_view,
     image_summary_view,
     runtime_metrics,
+    task_list_view,
     task_view,
 )
 
@@ -64,10 +65,17 @@ templates.env.globals["static_asset_version"] = static_asset_version
 
 
 def _deployment_list_context(store: TaskStore) -> dict[str, Any]:
+    entries = []
+    for task in store.list():
+        try:
+            size = store.package_size_bytes(task.task_id)
+        except OSError:
+            size = None
+        entries.append(task_list_view(task, size))
     return {
         "page_title": "部署任务",
         "active_nav": "deployments",
-        "tasks": [task_view(task) for task in store.list()],
+        "tasks": entries,
         "upload_error": None,
     }
 
@@ -356,6 +364,23 @@ def create_web_router(
             return _web_error(request, 404, "找不到部署任务", task_id)
         except DeploymentStateError as exc:
             return _web_error(request, 409, "任务当前状态不允许丢弃", str(exc))
+        return RedirectResponse("/deployments", status_code=303)
+
+    @router.post("/deployments/{task_id}/delete")
+    def delete_deployment_task(request: Request, task_id: str):
+        try:
+            deployment.delete_task(task_id)
+        except KeyError:
+            return _web_error(request, 404, "找不到部署任务", task_id)
+        except DeploymentStateError as exc:
+            return _web_error(
+                request,
+                409,
+                "任务当前状态不允许删除",
+                str(exc),
+            )
+        except (OSError, ValueError) as exc:
+            return _web_error(request, 500, "删除部署任务失败", str(exc))
         return RedirectResponse("/deployments", status_code=303)
 
     @router.get("/runtime", response_class=HTMLResponse)

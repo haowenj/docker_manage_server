@@ -58,6 +58,98 @@ def test_invalid_upload_renders_422(web_context):
     assert "归档校验失败" in response.text
 
 
+def test_task_list_shows_package_size_and_delete_only_for_inactive_tasks(
+    web_context,
+):
+    client, store, _runtime = web_context
+    pending = store.create("pending", "pending.tar.gz")
+    pending.status = TaskStatus.PENDING_REVIEW
+    store.save(pending)
+    (pending.package_dir / "payload.bin").write_bytes(b"x" * 1536)
+    active = store.create("active", "active.tar.gz")
+    active.status = TaskStatus.DEPLOYING
+    store.save(active)
+
+    response = client.get("/deployments")
+
+    assert response.status_code == 200
+    assert "1.5 KiB" in response.text
+    assert 'action="/deployments/pending/delete"' in response.text
+    assert 'action="/deployments/active/delete"' not in response.text
+    assert "不会影响已部署服务、稳定部署目录或 Docker 数据" in response.text
+
+
+def test_task_list_marks_unreadable_package_size(web_context, monkeypatch):
+    client, store, _runtime = web_context
+    task = store.create("blocked", "blocked.tar.gz")
+    task.status = TaskStatus.FAILED
+    store.save(task)
+    real_size = store.package_size_bytes
+
+    def blocked(task_id):
+        if task_id == "blocked":
+            raise PermissionError("blocked")
+        return real_size(task_id)
+
+    monkeypatch.setattr(store, "package_size_bytes", blocked)
+
+    response = client.get("/deployments")
+
+    assert response.status_code == 200
+    assert "无法读取" in response.text
+
+
+def test_web_delete_task_redirects_and_preserves_deployment(web_context):
+    client, store, _runtime = web_context
+    task = store.create("deployed", "demo.tar.gz")
+    task.status = TaskStatus.DEPLOYED
+    task.app_name = "demo"
+    task.deployment_dir = store.deployment_dir("demo")
+    task.deployment_dir.mkdir(parents=True)
+    stable = task.deployment_dir / "compose.yaml"
+    stable.write_text("services: {}\n", encoding="utf-8")
+    store.save(task)
+
+    response = client.post(
+        "/deployments/deployed/delete",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/deployments"
+    assert stable.is_file()
+    assert client.get("/deployments/deployed").status_code == 404
+
+
+def test_web_delete_task_maps_missing_and_active_status(web_context):
+    client, store, _runtime = web_context
+    active = store.create("active", "demo.tar.gz")
+    active.status = TaskStatus.DEPLOYING
+    store.save(active)
+
+    assert client.post("/deployments/missing/delete").status_code == 404
+    assert client.post("/deployments/active/delete").status_code == 409
+    assert store.package_dir("active").is_dir()
+
+
+def test_web_delete_task_maps_storage_failure(web_context, monkeypatch):
+    client, store, _runtime = web_context
+    task = store.create("blocked", "demo.tar.gz")
+    task.status = TaskStatus.FAILED
+    store.save(task)
+
+    def fail_delete(task_id):
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr(store, "delete", fail_delete)
+
+    response = client.post("/deployments/blocked/delete")
+
+    assert response.status_code == 500
+    assert "删除部署任务失败" in response.text
+    assert store.get("blocked").status is TaskStatus.FAILED
+
+
 def test_deploy_and_discard_use_303(web_context, valid_archive):
     client, store, _runtime = web_context
     uploaded = client.post(
