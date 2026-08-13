@@ -87,6 +87,73 @@ def test_discard_physically_removes_pending_task(tmp_path, valid_archive):
     assert not (tmp_path / "tasks/task-1.json").exists()
 
 
+@pytest.mark.parametrize(
+    "status",
+    (TaskStatus.PENDING_REVIEW, TaskStatus.FAILED, TaskStatus.DEPLOYED),
+)
+def test_delete_task_removes_allowed_task_but_keeps_deployment(
+    tmp_path: Path,
+    status: TaskStatus,
+):
+    service = make_service(tmp_path)
+    task = service.store.create("task-1", "demo.tar.gz")
+    task.status = status
+    task.app_name = "demo"
+    task.deployment_dir = service.store.deployment_dir("demo")
+    task.deployment_dir.mkdir(parents=True)
+    stable_file = task.deployment_dir / "compose.yaml"
+    stable_file.write_text("services: {}\n", encoding="utf-8")
+    service.store.save(task)
+
+    deleted = service.delete_task("task-1")
+
+    assert deleted.task_id == "task-1"
+    assert not service.store.package_dir("task-1").exists()
+    with pytest.raises(KeyError):
+        service.store.get("task-1")
+    assert stable_file.read_text(encoding="utf-8") == "services: {}\n"
+
+
+@pytest.mark.parametrize(
+    "status",
+    (TaskStatus.UPLOADED, TaskStatus.EXTRACTING, TaskStatus.DEPLOYING),
+)
+def test_delete_task_rejects_active_status(tmp_path: Path, status: TaskStatus):
+    service = make_service(tmp_path)
+    task = service.store.create("task-1", "demo.tar.gz")
+    task.status = status
+    service.store.save(task)
+
+    with pytest.raises(DeploymentStateError):
+        service.delete_task("task-1")
+
+    assert service.store.package_dir("task-1").is_dir()
+    assert service.store.get("task-1").status is status
+
+
+def test_delete_task_propagates_missing_task(tmp_path: Path):
+    service = make_service(tmp_path)
+
+    with pytest.raises(KeyError):
+        service.delete_task("missing")
+
+
+def test_delete_task_propagates_storage_failure(tmp_path: Path, monkeypatch):
+    service = make_service(tmp_path)
+    task = service.store.create("task-1", "demo.tar.gz")
+    task.status = TaskStatus.FAILED
+    service.store.save(task)
+
+    def fail_delete(task_id):
+        raise PermissionError("blocked")
+
+    monkeypatch.setattr(service.store, "delete", fail_delete)
+
+    with pytest.raises(PermissionError, match="blocked"):
+        service.delete_task("task-1")
+    assert service.store.get("task-1").status is TaskStatus.FAILED
+
+
 def test_deploy_loads_image_then_runs_compose_without_deleting_old_bind_data(
     tmp_path, valid_archive_with_files
 ):

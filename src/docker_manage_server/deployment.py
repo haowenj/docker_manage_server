@@ -15,6 +15,7 @@ from .artifacts import (
 from .deployment_config import (
     ConfigurationValidationError,
     apply_directory_rules,
+    can_delete_task,
     can_edit_task,
     can_retry_task,
     effective_directory_rules,
@@ -216,6 +217,17 @@ class DeploymentService:
                 for path in (candidate_env, candidate_compose, checksum_partial):
                     if path.exists():
                         path.unlink()
+
+    def delete_task(self, task_id: str) -> DeploymentTask:
+        with self._task_lock(task_id):
+            task = self.store.get(task_id)
+            if not can_delete_task(task):
+                raise DeploymentStateError(
+                    f"task {task_id} cannot be deleted from status "
+                    f"{task.status.value}"
+                )
+            self.store.delete(task_id)
+            return task
 
     def discard(self, task_id: str) -> DeploymentTask:
         with self._task_lock(task_id):
