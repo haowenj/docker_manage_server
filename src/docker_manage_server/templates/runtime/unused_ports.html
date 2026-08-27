@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="page-intro">当前范围为 {{ port_overview.start }}–{{ port_overview.end }}，仅排除 Docker 已配置的宿主机映射端口。</p>
+<section class="panel unused-port-panel">
+  <div class="panel-heading unused-port-heading">
+    <div>
+      <h2>端口列表</h2>
+      <p class="muted">蓝色为未使用，灰色为已映射；列表按端口号升序排列。</p>
+    </div>
+    <div class="unused-port-count"><strong>可用端口：{{ port_overview.available_count }} 个</strong><span>已映射 {{ port_overview.mapped_count }} 个</span></div>
+  </div>
+  <div class="port-grid" role="list" aria-label="6000 到 9999 端口状态">
+    {% for port in port_overview.ports %}<span class="port-cell{% if port.mapped %} port-used{% endif %}" data-port="{{ port.number }}" data-port-state="{{ 'mapped' if port.mapped else 'available' }}" role="listitem" title="{{ '已映射' if port.mapped else '未使用' }}">{{ port.number }}</span>{% endfor %}
+  </div>
+  <div class="port-legend" aria-label="端口状态说明"><span><i class="port-dot"></i>未使用</span><span><i class="port-dot port-dot-used"></i>已映射</span></div>
+</section>
+{% endblock %}

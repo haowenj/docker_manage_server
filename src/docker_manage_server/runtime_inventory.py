@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +16,8 @@ COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
 COMPOSE_CONFIG_FILES_LABEL = "com.docker.compose.project.config_files"
 UNREGISTERED_STATUS = "未被 Compose CLI 发现"
+PORT_RANGE_START = 6000
+PORT_RANGE_END = 9999
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,88 @@ class RuntimeOverview:
     standalone_containers: tuple[dict[str, Any], ...] = ()
     compose_error: str | None = None
     docker_error: str | None = None
+
+
+@dataclass(frozen=True)
+class PortStatus:
+    number: int
+    mapped: bool
+
+    @property
+    def available(self) -> bool:
+        return not self.mapped
+
+
+@dataclass(frozen=True)
+class PortOverview:
+    start: int
+    end: int
+    ports: tuple[PortStatus, ...]
+
+    @property
+    def total_count(self) -> int:
+        return len(self.ports)
+
+    @property
+    def mapped_ports(self) -> tuple[int, ...]:
+        return tuple(port.number for port in self.ports if port.mapped)
+
+    @property
+    def available_ports(self) -> tuple[int, ...]:
+        return tuple(port.number for port in self.ports if port.available)
+
+    @property
+    def mapped_count(self) -> int:
+        return len(self.mapped_ports)
+
+    @property
+    def available_count(self) -> int:
+        return len(self.available_ports)
+
+
+def docker_host_ports(
+    containers: Iterable[Mapping[str, Any]],
+) -> set[int]:
+    mapped = set()
+    for container in containers:
+        ports = container.get("ports")
+        if not isinstance(ports, Mapping):
+            continue
+        for bindings in ports.values():
+            if isinstance(bindings, Mapping):
+                entries: Sequence[object] = (bindings,)
+            elif isinstance(bindings, Sequence) and not isinstance(
+                bindings, (str, bytes)
+            ):
+                entries = bindings
+            else:
+                continue
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    continue
+                raw_port = entry.get("HostPort")
+                if isinstance(raw_port, bool):
+                    continue
+                try:
+                    port = int(raw_port)
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= port <= 65535:
+                    mapped.add(port)
+    return mapped
+
+
+def build_port_overview(
+    containers: Iterable[Mapping[str, Any]],
+    start: int = PORT_RANGE_START,
+    end: int = PORT_RANGE_END,
+) -> PortOverview:
+    mapped = docker_host_ports(containers)
+    ports = tuple(
+        PortStatus(number=number, mapped=number in mapped)
+        for number in range(start, end + 1)
+    )
+    return PortOverview(start=start, end=end, ports=ports)
 
 
 def filter_runtime_overview(

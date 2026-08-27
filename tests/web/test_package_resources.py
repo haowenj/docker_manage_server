@@ -112,6 +112,7 @@ def test_runtime_templates_are_packaged():
     package = files("docker_manage_server")
     for path in (
         "templates/runtime/list.html",
+        "templates/runtime/unused_ports.html",
         "templates/compose_projects/detail.html",
         "templates/compose_projects/logs.html",
         "templates/compose_projects/terminal.html",

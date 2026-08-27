@@ -30,8 +30,11 @@ from .docker_runtime import (
 )
 from .models import DirectoryRule
 from .storage import TaskStore
-from .runtime_inventory import RuntimeInventoryService
-from .runtime_inventory import filter_runtime_overview
+from .runtime_inventory import (
+    RuntimeInventoryService,
+    build_port_overview,
+    filter_runtime_overview,
+)
 from .runtime_lifecycle import (
     RuntimeActionConflictError,
     RuntimeLifecycleService,
@@ -415,6 +418,24 @@ def create_web_router(
                 "compose_error": overview.compose_error,
                 "compose_q": compose_q,
                 "container_q": container_q,
+            },
+        )
+
+    @router.get("/unused-ports", response_class=HTMLResponse)
+    def unused_ports_page(request: Request):
+        try:
+            port_overview = build_port_overview(runtime.list_containers())
+        except DockerRuntimeError as exc:
+            return _web_error(
+                request, 503, "Docker daemon 不可用", str(exc)
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="runtime/unused_ports.html",
+            context={
+                "page_title": "未使用端口查询",
+                "active_nav": "unused_ports",
+                "port_overview": port_overview,
             },
         )
 
